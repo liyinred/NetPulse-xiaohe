@@ -30,7 +30,7 @@ class Device(TimestampMixin, Base):
     )
     public_ipv4: Mapped[str | None] = mapped_column(String(15), nullable=True)
     isp: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    province: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    province: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_seen_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     user: Mapped["User | None"] = relationship(back_populates="devices")

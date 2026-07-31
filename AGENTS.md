@@ -1,6 +1,5 @@
-- `wechat_netwatch_FastAPI`文件夹: FastAPI中央服务程序
-- `terminal_agent_Golang`文件夹: Golang终端agent程序
+- `wechat_netwatch_FastAPI`文件夹: FastAPI中央服务项目
+- `terminal_agent_Golang`文件夹: Golang终端agent项目
 - `docs`文件夹: 项目说明文档
 - `Python`环境: `pcdn-tx` Conda环境
 - 数据库迁移: `alembic`工具, 对应路径为`wechat_netwatch_FastAPI/alembic`
-- FastAPI服务启动命令`uvicorn main:app --reload --app-dir wechat_netwatch_FastAPI --host 0.0.0.0 --port 8086`

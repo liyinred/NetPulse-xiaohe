@@ -17,9 +17,9 @@ def bind_device(binding: DeviceBindRequest) -> DeviceBindResponse:
     """将设备绑定到已关注的微信用户。
 
     参数:
-        binding: 包含 device_id、openid 和公网 IPv4 的绑定信息。
+        binding: 包含设备标识、用户标识及归一化网络属性的绑定信息。
     返回:
-        新建或更新后的设备标识与公网 IPv4。
+        新建或更新后的设备标识及归一化网络属性。
     """
     with SessionLocal.begin() as session:
         user = session.scalar(select(User).where(User.openid == binding.openid))
@@ -37,9 +37,13 @@ def bind_device(binding: DeviceBindRequest) -> DeviceBindResponse:
 
         device.user_id = user.id
         device.public_ipv4 = str(binding.public_ipv4)
+        device.isp = binding.isp
+        device.province = binding.province
         session.flush()
         return DeviceBindResponse(
             id=device.id,
             device_id=device.device_id,
             public_ipv4=binding.public_ipv4,
+            isp=device.isp,
+            province=device.province,
         )

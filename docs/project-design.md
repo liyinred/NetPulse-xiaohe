@@ -219,7 +219,7 @@ stateDiagram-v2
 | `user_id`      | `BIGINT`      | `FK → users.id`, `INDEX` | 关联`users.id`；绑定前允许为空，关联用户删除后置空 |
 | `public_ipv4`  | `VARCHAR(15)` | -                             | 设备当前公网 IPv4                                    |
 | `isp`          | `INT`         | -                             | 当前公网 IP 对应的运营商编码                         |
-| `province`     | `VARCHAR(32)` | -                             | 当前公网 IP 对应的归一化省份                         |
+| `province`     | `INT`         | -                             | 当前公网 IP 对应的省份编码                           |
 | `last_seen_at` | `BIGINT`      | -                             | 最后在线时间，Unix 时间戳，单位秒                    |
 | `created_at`   | `BIGINT`      | -                             | 创建时间，Unix 时间戳，单位秒                        |
 | `updated_at`   | `BIGINT`      | -                             | 更新时间，Unix 时间戳，单位秒                        |
@@ -251,13 +251,13 @@ monitor:
 - `1`：电信
 - `2`：移动
 - `3`：联通
-- `0`：其他运营商
+- `4`：其他
 
 跨网目标必须与当前设备属于同一用户、处于在线状态、拥有有效公网 IP、ISP 不同且明确启用跨网探测。
 
 ## 10. 跨省探测扩展
 
-中央服务根据 `https://ip9.com.cn/get?ip={ip}` 返回的省份字段进行归一化。接口当前实际返回字段为 `data.prov`，同时兼容可能出现的 `data.province`。
+中央服务根据 `https://ip9.com.cn/get?ip={ip}` 返回的省份字段进行归一化。接口当前实际返回字段为 `data.prov`。
 
 跨省目标必须与当前设备属于同一用户、处于在线状态、拥有有效公网 IP、归一化省份不同且明确启用跨省探测。跨省目标筛选独立于 ISP 编码。
 

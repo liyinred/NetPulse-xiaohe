@@ -11,6 +11,8 @@ class DeviceBindRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=64)
     openid: str = Field(min_length=1, max_length=128)
     public_ipv4: IPv4Address
+    isp: int = Field(ge=1, le=4)
+    province: int = Field(ge=1, le=35)
 
 
 class DeviceBindResponse(BaseModel):
@@ -19,3 +21,5 @@ class DeviceBindResponse(BaseModel):
     id: int
     device_id: str
     public_ipv4: IPv4Address
+    isp: int
+    province: int
