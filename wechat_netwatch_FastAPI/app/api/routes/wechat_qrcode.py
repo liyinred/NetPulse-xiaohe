@@ -6,9 +6,12 @@ from datetime import datetime
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import select
 
-from app.schemas.wechat import QRCodeResponse
+from app.db.session import SessionLocal
+from app.models.user import User
+from app.schemas.wechat import QRCodeResponse, QRCodeStatusResponse
 from app.services.wechat import (
     QRCODE_EXPIRE_SECONDS,
     WECHAT_QRCODE_IMAGE_URL,
@@ -66,3 +69,22 @@ async def create_parameterized_qrcode() -> QRCodeResponse:
         url=url,
         image_url=image_url,
     )
+
+
+@router.get("/qrcode/status", response_model=QRCodeStatusResponse)
+def get_qrcode_status(
+    scene_str: str = Query(..., min_length=16, max_length=16),
+) -> QRCodeStatusResponse:
+    """查询二维码场景值对应的用户登录状态。
+
+    参数:
+        scene_str: Agent 创建二维码时获得的 16 位场景值。
+    返回:
+        是否匹配到有效关注用户，以及匹配成功时的 openid。
+    """
+    with SessionLocal() as session:
+        user = session.scalar(select(User).where(User.scene_str == scene_str))
+
+    if user is None or not user.openid or user.subscribe_status != 1:
+        return QRCodeStatusResponse(matched=False)
+    return QRCodeStatusResponse(matched=True, openid=user.openid)

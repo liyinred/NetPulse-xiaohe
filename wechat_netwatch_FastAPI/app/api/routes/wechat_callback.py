@@ -20,7 +20,11 @@ MAX_REQUEST_BODY_BYTES = 1024 * 1024
 QR_SCENE_PREFIX = "qrscene_"
 MAX_OPENID_LENGTH = 128
 MAX_SCENE_STR_LENGTH = 16
-SUBSCRIPTION_STATUS_BY_EVENT = {"subscribe": 1, "unsubscribe": 0}
+SUBSCRIPTION_STATUS_BY_EVENT = {
+    "subscribe": 1,
+    "unsubscribe": 0,
+    "scan": 1,
+}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -193,13 +197,13 @@ def extract_scene_str(event_key: str | None) -> str | None:
 
 
 def update_subscription_user(session: Session, message: dict[str, str]) -> bool:
-    """根据关注或取消关注事件新增或更新微信用户。
+    """根据关注、取消关注或扫码事件新增或更新微信用户。
 
     参数:
         session: 当前 SQLAlchemy 数据库会话。
         message: 解析后的微信 XML 一级字段。
     返回:
-        已处理关注状态事件时返回 True，非目标事件返回 False。
+        已处理目标事件时返回 True，非目标事件返回 False。
     """
     if message.get("MsgType", "").lower() != "event":
         return False
@@ -231,7 +235,7 @@ def handle_message(message: dict[str, str]) -> None:
     参数:
         message: 解析后的微信 XML 一级字段。
     返回:
-        无返回值；关注状态事件会在事务中新增或更新用户记录。
+        无返回值；关注状态或扫码事件会在事务中新增或更新用户记录。
     """
     logger.info(
         "收到微信推送: msg_type=%s event=%s from_user=%s",

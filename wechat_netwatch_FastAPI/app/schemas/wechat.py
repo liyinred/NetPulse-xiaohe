@@ -11,3 +11,10 @@ class QRCodeResponse(BaseModel):
     expire_seconds: int
     url: str
     image_url: str
+
+
+class QRCodeStatusResponse(BaseModel):
+    """带参数二维码登录状态。"""
+
+    matched: bool
+    openid: str | None = None

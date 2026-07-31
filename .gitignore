@@ -3,6 +3,7 @@
 .idea/
 .DS_Store
 .trae/
+.cursorrules
 
 # Logs
 *.log
@@ -28,6 +29,7 @@ pnpm-lock.yaml
 # Python cache and generated files
 *.pyc
 __pycache__/
+venv/
 alembic/
 alembic.ini
 scripts/
@@ -36,9 +38,6 @@ code-review/
 frontend_miniprogram/
 uploads/
 remove_exception_lines.py
-
-# Tooling
-.cursorrules
 
 # Frontend auto-generated files
 frontend/src/types/import/auto-imports.d.ts

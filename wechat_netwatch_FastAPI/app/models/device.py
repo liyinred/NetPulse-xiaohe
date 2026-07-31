@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -16,8 +16,12 @@ class Device(TimestampMixin, Base):
     """保存终端设备、绑定用户和当前网络属性。"""
 
     __tablename__ = "devices"
+    __table_args__ = (
+        UniqueConstraint("device_id", name="uq_devices_device_id"),
+    )
 
-    device_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("users.id", ondelete="SET NULL"),
