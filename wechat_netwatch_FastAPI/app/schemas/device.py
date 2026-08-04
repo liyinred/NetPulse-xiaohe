@@ -9,10 +9,7 @@ class DeviceBindRequest(BaseModel):
     """设备绑定请求。"""
 
     device_id: str = Field(min_length=1, max_length=64)
-    openid: str = Field(min_length=1, max_length=128)
-    public_ipv4: IPv4Address
-    isp: int = Field(ge=1, le=4)
-    province: int = Field(ge=1, le=35)
+    scene_str: str = Field(min_length=16, max_length=16)
 
 
 class DeviceBindResponse(BaseModel):
@@ -23,3 +20,6 @@ class DeviceBindResponse(BaseModel):
     public_ipv4: IPv4Address
     isp: int
     province: int
+    city: str
+    isp_name: str
+    province_name: str

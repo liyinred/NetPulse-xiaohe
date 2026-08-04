@@ -29,6 +29,7 @@ WECHAT_TOKEN = get_required_setting("WECHAT_TOKEN")
 WECHAT_ENCODING_AES_KEY = get_required_setting("WECHAT_ENCODING_AES_KEY")
 WECHAT_APP_ID = get_required_setting("WECHAT_APP_ID")
 WECHAT_APP_SECRET = get_required_setting("WECHAT_APP_SECRET")
+IP_LOOKUP_API_KEY = get_required_setting("IP_LOOKUP_API_KEY")
 
 MYSQL_HOST = get_required_setting("MYSQL_HOST")
 MYSQL_PORT = int(get_required_setting("MYSQL_PORT"))

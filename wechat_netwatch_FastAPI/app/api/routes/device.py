@@ -1,49 +1,46 @@
 """设备绑定路由。"""
 
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Request
 
-from app.db.session import SessionLocal
-from app.models.device import Device
-from app.models.user import User
 from app.schemas.device import DeviceBindRequest, DeviceBindResponse
+from app.services.device import bind_device_by_scene
+from app.services.network import IPLookupError
 
 
 router = APIRouter(prefix="/devices", tags=["设备"])
 
 
 @router.post("/bind", response_model=DeviceBindResponse)
-def bind_device(binding: DeviceBindRequest) -> DeviceBindResponse:
-    """将设备绑定到已关注的微信用户。
+async def bind_device(binding: DeviceBindRequest, request: Request) -> DeviceBindResponse:
+    """使用二维码场景值绑定设备并返回服务端识别的网络属性。
 
     参数:
-        binding: 包含设备标识、用户标识及归一化网络属性的绑定信息。
+        binding: 包含设备标识和二维码场景值的绑定信息。
+        request: 用于读取客户端连接源地址的 FastAPI Request。
     返回:
-        新建或更新后的设备标识及归一化网络属性。
+        新建或更新后的设备标识、公网 IPv4 及归一化网络属性。
     """
-    with SessionLocal.begin() as session:
-        user = session.scalar(select(User).where(User.openid == binding.openid))
-        if user is None:
-            raise HTTPException(status_code=404, detail="openid 对应的用户不存在")
-        if user.subscribe_status != 1:
-            raise HTTPException(status_code=409, detail="用户未关注服务号")
-
-        device = session.scalar(
-            select(Device).where(Device.device_id == binding.device_id)
+    try:
+        binding_result = await bind_device_by_scene(
+            binding.device_id,
+            binding.scene_str,
+            request.client.host if request.client is not None else None,
         )
-        if device is None:
-            device = Device(device_id=binding.device_id)
-            session.add(device)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IPLookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if binding_result is None:
+        raise HTTPException(status_code=404, detail="二维码未匹配有效关注用户")
 
-        device.user_id = user.id
-        device.public_ipv4 = str(binding.public_ipv4)
-        device.isp = binding.isp
-        device.province = binding.province
-        session.flush()
-        return DeviceBindResponse(
-            id=device.id,
-            device_id=device.device_id,
-            public_ipv4=binding.public_ipv4,
-            isp=device.isp,
-            province=device.province,
-        )
+    network_info = binding_result.network_info
+    return DeviceBindResponse(
+        id=binding_result.id,
+        device_id=binding_result.device_id,
+        public_ipv4=network_info.public_ipv4,
+        isp=network_info.isp,
+        province=network_info.province,
+        city=network_info.city_name,
+        isp_name=network_info.isp_name,
+        province_name=network_info.province_name,
+    )

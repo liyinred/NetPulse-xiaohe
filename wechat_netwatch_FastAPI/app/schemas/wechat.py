@@ -17,4 +17,3 @@ class QRCodeStatusResponse(BaseModel):
     """带参数二维码登录状态。"""
 
     matched: bool
-    openid: str | None = None

@@ -14,21 +14,15 @@ import (
 
 const fileName = "config.yaml"
 
-// Config 保存设备和登录用户配置。
+// Config 保存 Agent 本地设备和监测配置。
 type Config struct {
-	Device DeviceConfig `yaml:"device"`
-	User   UserConfig   `yaml:"user"`
+	Device  DeviceConfig   `yaml:"device"`
+	Monitor map[string]any `yaml:"monitor,omitempty"`
 }
 
-// DeviceConfig 保存设备标识和公网 IPv4。
+// DeviceConfig 保存 Agent 本地设备标识。
 type DeviceConfig struct {
-	DeviceID   quotedString `yaml:"device_id"`
-	PublicIPv4 quotedString `yaml:"public_ipv4"`
-}
-
-// UserConfig 保存微信用户标识。
-type UserConfig struct {
-	OpenID quotedString `yaml:"openid"`
+	DeviceID quotedString `yaml:"device_id"`
 }
 
 type quotedString string
@@ -41,18 +35,14 @@ func (agentConfig Config) DeviceID() string {
 	return strings.TrimSpace(string(agentConfig.Device.DeviceID))
 }
 
-// Update 更新登录用户和设备网络配置。
+// SetDeviceID 更新本地设备标识。
 //
 // 参数:
-//   - openID: 微信用户标识。
 //   - deviceID: 设备唯一标识。
-//   - publicIPv4: 当前公网 IPv4。
 //
 // 返回值: 无。
-func (agentConfig *Config) Update(openID string, deviceID string, publicIPv4 string) {
-	agentConfig.User.OpenID = quotedString(openID)
+func (agentConfig *Config) SetDeviceID(deviceID string) {
 	agentConfig.Device.DeviceID = quotedString(deviceID)
-	agentConfig.Device.PublicIPv4 = quotedString(publicIPv4)
 }
 
 // ExecutablePath 返回可执行文件同目录下的配置文件路径。

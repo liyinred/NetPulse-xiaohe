@@ -1,4 +1,4 @@
-// Package app 编排 Agent 的登录、网络查询和设备绑定流程。
+// Package app 编排 Agent 的设备身份、二维码登录和绑定流程。
 package app
 
 import (
@@ -19,7 +19,7 @@ const (
 	requestTimeout = 10 * time.Second
 )
 
-// Run 执行登录、公网 IPv4 与归属信息获取、设备标识持久化及后端绑定流程。
+// Run 持久化设备标识，并等待中央服务通过二维码轮询完成设备绑定。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
@@ -40,6 +40,18 @@ func Run(ctx context.Context, output io.Writer) error {
 		fmt.Fprintf(output, "已创建配置文件: %s\n", configPath)
 	}
 
+	deviceID := agentConfig.DeviceID()
+	if deviceID == "" {
+		deviceID, err = generateDeviceID()
+		if err != nil {
+			return err
+		}
+	}
+	agentConfig.SetDeviceID(deviceID)
+	if err := config.Write(configPath, agentConfig); err != nil {
+		return err
+	}
+
 	backend := client.NewBackend(backendBaseURL, requestTimeout)
 	qrCode, err := backend.RequestQRCode(ctx)
 	if err != nil {
@@ -50,42 +62,16 @@ func Run(ctx context.Context, output io.Writer) error {
 	}
 
 	fmt.Fprintln(output, "请使用微信扫描二维码完成登录，正在等待确认...")
-	openID, err := backend.WaitForLogin(
+	if err := backend.WaitForLogin(
 		ctx,
 		qrCode.SceneString,
+		deviceID,
 		time.Duration(qrCode.ExpireSeconds)*time.Second,
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	networkInfo, err := client.LookupNetwork(ctx, requestTimeout)
-	if err != nil {
-		return err
-	}
-	deviceID := agentConfig.DeviceID()
-	if deviceID == "" {
-		deviceID, err = generateDeviceID()
-		if err != nil {
-			return err
-		}
-	}
-
-	agentConfig.Update(openID, deviceID, networkInfo.PublicIPv4)
-	if err := config.Write(configPath, agentConfig); err != nil {
-		return err
-	}
-	if err := backend.BindDevice(ctx, client.DeviceBinding{
-		DeviceID:   deviceID,
-		OpenID:     openID,
-		PublicIPv4: networkInfo.PublicIPv4,
-		ISP:        networkInfo.ISP,
-		Province:   networkInfo.Province,
-	}); err != nil {
-		return err
-	}
-	fmt.Fprintln(output, "登录成功，设备信息已保存并完成绑定。")
-	fmt.Fprintf(output, "公网 IPv4: %s\n", networkInfo.PublicIPv4)
+	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定。")
 	fmt.Fprintf(output, "device_id: %s\n", deviceID)
 	return nil
 }
