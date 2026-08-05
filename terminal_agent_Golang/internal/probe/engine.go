@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -82,6 +83,13 @@ func NewEngine(
 //
 // 返回值: 初始化、目标刷新或探测失败时返回错误；取消时返回 Context 错误。
 func (engine *Engine) Run(ctx context.Context) error {
+	snapshot, err := engine.fetchTargets(ctx)
+	if err != nil {
+		return err
+	}
+	if len(snapshot.IPv4) == 0 && len(snapshot.IPv6) == 0 {
+		return fmt.Errorf("当前获取的异网和跨省探测目标为空")
+	}
 	drivers, err := engine.openICMPDrivers()
 	if err != nil {
 		return err
@@ -91,10 +99,6 @@ func (engine *Engine) Run(ctx context.Context) error {
 			_ = driver.Close()
 		}
 	}()
-	snapshot, err := engine.fetchTargets(ctx)
-	if err != nil {
-		return err
-	}
 	nextWindow := time.Now().Truncate(windowLength).Add(windowLength)
 	fmt.Fprintf(engine.output, "持续探测将在 %s 开始。\n", nextWindow.Format("15:04:05"))
 	if err := waitUntil(ctx, nextWindow); err != nil {
@@ -125,10 +129,16 @@ func (engine *Engine) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		engine.printWindowResults(windowStart, windowEnd, results)
 		engine.submitWindowResults(ctx, windowEnd.Unix(), results)
 		engine.submitWindowAlerts(ctx, windowEnd.Unix(), results)
 		select {
-		case snapshot = <-refreshChannel:
+		case refreshed := <-refreshChannel:
+			if len(refreshed.IPv4) == 0 && len(refreshed.IPv6) == 0 {
+				fmt.Fprintln(engine.output, "当前获取的异网和跨省探测目标为空，下一窗口沿用当前目标。")
+			} else {
+				snapshot = refreshed
+			}
 		case refreshErr := <-refreshError:
 			fmt.Fprintf(engine.output, "刷新探测目标失败，下一窗口沿用当前目标: %v\n", refreshErr)
 		default:
@@ -236,6 +246,67 @@ type sourceWindowResult struct {
 	version int
 	source  netip.Addr
 	stats   []targetStats
+}
+
+// printWindowResults 在终端输出一个完整自然分钟的三协议探测结果。
+//
+// 参数:
+//   - windowStart: 自然分钟窗口起点。
+//   - windowEnd: 自然分钟窗口终点。
+//   - results: 当前窗口按源地址汇总的目标统计。
+//
+// 返回值: 无。
+func (engine *Engine) printWindowResults(
+	windowStart time.Time,
+	windowEnd time.Time,
+	results []sourceWindowResult,
+) {
+	fmt.Fprintf(
+		engine.output,
+		"\n%s 至 %s 整分钟探测结果:\n",
+		windowStart.Format("2006-01-02 15:04:05"),
+		windowEnd.Format("15:04:05"),
+	)
+	for _, result := range results {
+		for _, stats := range result.stats {
+			modeNames := make([]string, 0, len(stats.target.Modes))
+			for _, mode := range stats.target.Modes {
+				if mode == modeCrossISP {
+					modeNames = append(modeNames, "异网")
+				} else {
+					modeNames = append(modeNames, "跨省")
+				}
+			}
+			fmt.Fprintf(
+				engine.output,
+				"IPv%d %s -> %s [%s]\n",
+				result.version,
+				result.source,
+				stats.target.Address,
+				strings.Join(modeNames, "/"),
+			)
+			protocols := []struct {
+				name  string
+				stats protocolStats
+			}{
+				{name: "ICMP", stats: stats.icmp},
+				{name: "TCP", stats: stats.tcp},
+				{name: "UDP", stats: stats.udp},
+			}
+			for _, protocol := range protocols {
+				summary := summarize(protocol.stats)
+				fmt.Fprintf(
+					engine.output,
+					"  %s: 成功 %d/%d，丢包率 %.1f%%，平均延迟 %d ms\n",
+					protocol.name,
+					protocol.stats.succeeded,
+					protocol.stats.attempted,
+					float64(summary.LossRate)/10,
+					summary.AverageLatencyMS,
+				)
+			}
+		}
+	}
 }
 
 // validateWindowResults 校验非空逻辑目标均完成固定探测次数。
@@ -479,6 +550,9 @@ func (engine *Engine) submitWindowResults(
 					TCP:      summarize(stats.tcp),
 					UDP:      summarize(stats.udp),
 				})
+			}
+			if len(targets) == 0 {
+				continue
 			}
 			request := client.ProbeResultRequest{
 				DeviceID:      engine.deviceID,

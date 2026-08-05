@@ -6,10 +6,6 @@ from time import time
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import (
-    PROBE_DEVICE_OFFLINE_SECONDS,
-    PROBE_IP_MAX_AGE_SECONDS,
-)
 from app.db.session import SessionLocal
 from app.models.alert_event import AlertEvent
 from app.models.device import Device
@@ -115,9 +111,8 @@ def _load_targets(
     device: Device,
     version: int,
     mode: str,
-    current_time: int,
 ) -> list[ProbeTarget]:
-    """查询同版本、在线且符合分类条件的公开目标。
+    """查询同版本且符合分类条件的公开目标。
 
     参数:
         session: 当前数据库会话。
@@ -125,30 +120,23 @@ def _load_targets(
         device: 当前 Agent 设备。
         version: 目标 IP 版本。
         mode: cross_isp 或 cross_province。
-        current_time: 当前 Unix 时间戳。
     返回:
-        按设备和 IP 记录主键排序的目标列表。
+        按 IP 记录主键排序的目标列表。
     """
     rows = session.scalars(
         select(IPDict)
-        .join(Device, IPDict.device_related_id == Device.id)
         .where(
-            IPDict.device_related_id != device.id,
-            IPDict.device_related_id.is_not(None),
+            IPDict.id != source.id,
             IPDict.public_status == 1,
             IPDict.ip_version == version,
-            Device.user_id.is_not(None),
-            IPDict.update_time >= current_time - PROBE_IP_MAX_AGE_SECONDS,
-            Device.last_seen_at.is_not(None),
-            Device.last_seen_at
-            >= current_time - PROBE_DEVICE_OFFLINE_SECONDS,
         )
-        .order_by(Device.id, IPDict.id)
+        .order_by(IPDict.id)
     ).all()
     return [
         ProbeTarget(public_ip=ip_address(row.ip), isp=row.isp, province=row.province)
         for row in rows
-        if row.isp is not None
+        if row.device_related_id != device.id
+        and row.isp is not None
         and row.province is not None
         and _is_valid_target_ip(row.ip, version)
         and _matches_mode(source, row, mode)
@@ -202,7 +190,7 @@ async def discover_probe_targets(
             source_ipv4=request.source_ipv4,
             source_ipv6=request.source_ipv6,
             cross_isp_ipv4_targets=_load_targets(
-                session, source_ipv4, device, 4, "cross_isp", current_time
+                session, source_ipv4, device, 4, "cross_isp"
             ),
             cross_province_ipv4_targets=_load_targets(
                 session,
@@ -210,7 +198,6 @@ async def discover_probe_targets(
                 device,
                 4,
                 "cross_province",
-                current_time,
             ),
         )
         if request.source_ipv6 is not None:
@@ -220,7 +207,7 @@ async def discover_probe_targets(
             if source_ipv6 is None:
                 raise RuntimeError("IPv6 源地址刷新失败")
             response.cross_isp_ipv6_targets = _load_targets(
-                session, source_ipv6, device, 6, "cross_isp", current_time
+                session, source_ipv6, device, 6, "cross_isp"
             )
             response.cross_province_ipv6_targets = _load_targets(
                 session,
@@ -228,9 +215,16 @@ async def discover_probe_targets(
                 device,
                 6,
                 "cross_province",
-                current_time,
             )
-        return response
+    target_lists = (
+        response.cross_isp_ipv4_targets,
+        response.cross_province_ipv4_targets,
+        response.cross_isp_ipv6_targets,
+        response.cross_province_ipv6_targets,
+    )
+    if not any(target_lists):
+        raise ValueError("当前获取的异网和跨省探测目标为空")
+    return response
 
 
 def _get_owned_source(
@@ -272,7 +266,7 @@ def _get_valid_target(
     ip_version: int,
     mode: str,
 ) -> IPDict:
-    """校验上报目标的版本、设备归属、公开状态及分类。
+    """校验上报目标的版本、公开状态及分类。
 
     参数:
         session: 当前数据库会话。
@@ -290,12 +284,14 @@ def _get_valid_target(
         select(IPDict).where(
             IPDict.ip == str(target_ip),
             IPDict.ip_version == ip_version,
-            IPDict.device_related_id.is_not(None),
-            IPDict.device_related_id != device.id,
             IPDict.public_status == 1,
         )
     )
-    if target is None or not _matches_mode(source, target, mode):
+    if (
+        target is None
+        or target.device_related_id == device.id
+        or not _matches_mode(source, target, mode)
+    ):
         raise ValueError("target_ip 不符合当前探测分类")
     return target
 

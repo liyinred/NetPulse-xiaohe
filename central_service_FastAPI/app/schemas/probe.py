@@ -61,7 +61,7 @@ class ProbeResultRequest(BaseModel):
     ip_version: Literal[4, 6]
     source_ip: IPv4Address | IPv6Address
     unix_timestamp: int = Field(gt=0)
-    targets: list[TargetProbeResult]
+    targets: list[TargetProbeResult] = Field(min_length=1)
 
 
 class ProbeAlertRequest(BaseModel):

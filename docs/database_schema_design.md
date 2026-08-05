@@ -101,7 +101,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | UDP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`                          | UDP 整数毫秒 RTT；100% 丢包时写入`1000` |
 
-三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务根据上报的 `source_ip` 解析源 `ip_dict.id`，并遍历 `targets`，根据每个全局唯一的 `target_ip` 解析目标 `ip_dict.id` 及其 `device_related_id`；源 IP 必须属于 `device_id`，目标 IP 必须已关联其他设备，且两者的 `ip_version` 必须相同并等于上报值，任一目标的归属、版本或分类不匹配时拒绝整份上报。`ip_version` 由 `source_ip_id` 和 `target_ip_id` 关联的 `ip_dict.ip_version` 保存，不在状态表中重复存储；`probe_mode` 转换为数值编码，API 中的整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 分别直接写入 `loss_rate` 与 `rtt_ms`。
+三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务根据上报的 `source_ip` 解析源 `ip_dict.id`，并遍历 `targets`，根据每个全局唯一的 `target_ip` 解析目标 `ip_dict.id`；源 IP 必须属于 `device_id`，目标 IP 不要求关联设备但不得属于当前设备，且两者的 `ip_version` 必须相同并等于上报值，任一目标的归属、版本或分类不匹配时拒绝整份上报。`ip_version` 由 `source_ip_id` 和 `target_ip_id` 关联的 `ip_dict.ip_version` 保存，不在状态表中重复存储；`probe_mode` 转换为数值编码，API 中的整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 分别直接写入 `loss_rate` 与 `rtt_ms`。
 
 ### 7.7 `alert_events`
 
@@ -117,7 +117,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
 | `message`       | `TEXT`        | -                    | 需要微信通知时生成的告警消息正文；未通知时为空 |
 
-中央服务根据告警中的 `device_id` 和 `source_ip` 查询归属匹配的 `ip_dict.id` 并写入 `source_ip_id`，根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 及其 `device_related_id` 并写入 `target_ip_id`，同时校验源目标均已关联设备且不是同一设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件分类符合源设备所属用户的 `alert_type` 且用户仍关注服务号时，中央服务生成并持久化 `message`；不符合时保存空值。
+中央服务根据告警中的 `device_id` 和 `source_ip` 查询归属匹配的 `ip_dict.id` 并写入 `source_ip_id`，根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 并写入 `target_ip_id`，同时校验目标不属于当前设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。目标 IP 不要求关联设备。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件分类符合源设备所属用户的 `alert_type` 且用户仍关注服务号时，中央服务生成并持久化 `message`；不符合时保存空值。
 
 ### 7.8 `on_demand_executions`
 

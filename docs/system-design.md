@@ -144,14 +144,14 @@ flowchart TD
 
 Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及设备身份校验字段，不提交用户选择的模式。中央服务校验非空源 IP 的版本和设备归属，在 `ip_dict` 中创建或复用记录，并刷新网络属性和 `update_time`。
 
-中央服务分别以 IPv4、IPv6 源地址筛选同版本目标。候选 IP 必须合法、`device_related_id` 非空且属于其他设备、`public_status = 1`、`update_time` 在有效期内，且关联设备的 `last_seen_at` 未超过离线阈值；`device_related_id` 为空的记录不得进入持续探测目标池。两个阈值由中央服务统一配置。分类条件如下：
+中央服务分别以 IPv4、IPv6 源地址筛选同版本目标。候选 IP 必须合法、`public_status = 1`、不是当前源 IP，且不得属于当前设备；候选 IP 不要求关联设备，也不依赖设备在线状态或 IP 刷新时间。分类条件如下：
 
 | 分类 | `probe_mode`     | 附加条件                                   |
 | ---- | ------------------ | ------------------------------------------ |
 | 异网 | `cross_isp`      | 源与目标的 ISP 均已识别且不同              |
 | 跨省 | `cross_province` | 源与目标的省份均已识别、不是未知编码且不同 |
 
-响应始终返回两个 IPv4 targets 列表；仅当 `source_ipv6` 有效时才返回两个 IPv6 targets 列表。若 Agent 未获取到 `source_ipv6`，请求和响应中的 `source_ipv6` 均为 `null`，响应省略 `cross_isp_ipv6_targets` 和 `cross_province_ipv6_targets`；Agent 将这两个字段缺失视为本轮无 IPv6 探测任务，不得视为响应格式错误。响应仅包含探测所需的公开信息。以下为 IPv4、IPv6 均可用时的完整示例：
+响应始终返回两个 IPv4 targets 列表；仅当 `source_ipv6` 有效时才返回两个 IPv6 targets 列表。若 Agent 未获取到 `source_ipv6`，请求和响应中的 `source_ipv6` 均为 `null`，响应省略 `cross_isp_ipv6_targets` 和 `cross_province_ipv6_targets`；Agent 将这两个字段缺失视为本轮无 IPv6 探测任务，不得视为响应格式错误。所有可用地址族的异网和跨省列表均为空时，中央服务拒绝本次查询，Agent 在终端提示“当前获取的异网和跨省探测目标为空”，不得进入空探测循环。响应仅包含探测所需的公开信息。以下为 IPv4、IPv6 均可用时的完整示例：
 
 ```json
 {
@@ -209,7 +209,7 @@ Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及
 6. 每个逻辑目标在每个自然分钟窗口内固定执行 100 次探测。发送间隔由 `probe_interval = window_duration / probe_count` 计算；窗口固定为 60 秒，因此发送间隔为 `60s / 100 = 600ms`。
 7. 第 `i` 次探测的计划发送时刻为 `window_start + i * probe_interval`，其中 `i` 从 0 到 99。Scheduler 使用基于窗口起点的绝对计划时刻，避免单次探测耗时造成累计漂移；最后一次发送时刻为窗口开始后的 59.4 秒。
 8. 各 Driver 按协议语义匹配响应并生成统一结果；单次探测判定为丢包时仅累计到当前逻辑目标统计，不立即发起告警请求。
-9. 窗口结束后分别计算各唯一目标三种协议的丢包率和成功响应平均延迟，再按目标的所属分类将同一份统计结果投影到对应 `probe_mode`，并以 `device_id + probe_mode + ip_version + source_ip` 分组写入 `targets` 数组后上报。每个可用源 IP 每个窗口分别为 `cross_isp` 和 `cross_province` 生成一份结果上报；发生丢包的目标按 IP 版本、分类和协议生成分钟告警，所有分钟告警通过单个批次请求上报。
+9. 窗口结束后分别计算各唯一目标三种协议的丢包率和成功响应平均延迟，在终端输出本窗口结果，再按目标的所属分类将同一份统计结果投影到对应 `probe_mode`，并以 `device_id + probe_mode + ip_version + source_ip` 分组写入 `targets` 数组后上报。仅为至少包含一个目标的分类生成结果上报；发生丢包的目标按 IP 版本、分类和协议生成分钟告警，所有分钟告警通过单个批次请求上报。
 
 ### 4.5 临时 IP 按需查询
 
@@ -373,7 +373,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 
 ### 6.1 整分钟探测结果上报
 
-每个整分钟窗口结束时，Agent 按 `device_id + probe_mode + ip_version + source_ip` 生成上报请求，并使用 `unix_timestamp` 标识窗口结束时间。同一分类、IP 版本和源 IP 下的全部目标汇总结果保存在 `targets` 数组中；对应目标列表为空时仍上报空 `targets`，用于表明该窗口已完成但没有符合条件的目标。中央服务校验 `source_ip` 属于 `device_id`，并校验 `targets` 中每个目标均已登记、与源 IP 的版本相同且等于顶层 `ip_version`。
+每个整分钟窗口结束时，Agent 按 `device_id + probe_mode + ip_version + source_ip` 生成上报请求，并使用 `unix_timestamp` 标识窗口结束时间。同一分类、IP 版本和源 IP 下的全部目标汇总结果保存在 `targets` 数组中；`targets` 至少包含一个目标，空分类不生成上报。中央服务校验 `source_ip` 属于 `device_id`，并校验 `targets` 中每个目标均已登记、与源 IP 的版本相同且等于顶层 `ip_version`。
 
 ```json
 {
@@ -402,7 +402,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其 `device_related_id`，并校验源目标均已关联设备且不是同一设备、两者 `ip_dict.ip_version` 均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，相同幂等键的重试通过比较三张状态表中的已有结果处理。
+中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、源目标版本均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；目标本身不要求关联设备。任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，相同幂等键的重试通过比较三张状态表中的已有结果处理。
 
 ### 6.2 分钟聚合丢包告警
 
@@ -425,7 +425,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻；中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其设备归属，并校验源目标均已关联设备且不是同一设备、IP 版本均与 `ip_version` 一致后，将整个批次写入 `alert_events`。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
+`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻；中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、IP 版本均与 `ip_version` 一致后，将整个批次写入 `alert_events`。目标 IP 不要求关联设备。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
 
 ### 6.3 临时 IP 按需结果上报
 
@@ -460,163 +460,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 
 ## 7. 数据设计
 
-数据表中的内部主键和外键统一使用 `INT`，Unix 时间戳统一使用 `INT64`；状态、协议和模式等有限选项使用整数编码，并通过 `CHECK` 约束合法取值。`VARCHAR` 和 `TEXT` 仅用于 `openid`、UUID、场景值、名称和消息正文等不可数值化的标识或文本。临时 IP 查询的三协议结果作为一次不可拆分的节点响应，使用受固定 schema 校验的 `JSON` 字段保存。
-
-### 7.1 `users`
-
-| 字段                 | 数据类型         | 键                                     | 说明                                                       |
-| -------------------- | ---------------- | -------------------------------------- | ---------------------------------------------------------- |
-| `id`               | `INT`          | `PK`                                 | 用户内部主键，自增                                         |
-| `openid`           | `VARCHAR(128)` | `UNIQUE`                             | 微信用户标识；扫码前允许为空，绑定完成后写入               |
-| `scene_str`        | `VARCHAR(16)`  | `UNIQUE`                             | 字符串场景值，同时作为 Agent 轮询查询键                    |
-| `subscribe_status` | `INT`          | -                                      | 当前是否关注服务号；`0` 表示未订阅，`1` 表示已订阅     |
-| `alert_type`       | `INT`          | `NOT NULL`, `DEFAULT 1`, `CHECK` | 接收告警类型：`1`=仅异网、`2`=仅跨省、`3`=异网和跨省 |
-| `created_time`     | `INT64`        | -                                      | 创建时间，Unix 时间戳，单位秒                              |
-| `updated_time`     | `INT64`        | -                                      | 更新时间，Unix 时间戳，单位秒                              |
-
-创建二维码时创建待绑定用户，`alert_type` 默认为 `1`；微信回调写入 `openid`。绑定轮询校验关注状态和场景有效期，完成设备关联后仅返回绑定状态。用户可在微信服务号中将 `alert_type` 修改为 `1`、`2` 或 `3`，该设置对其全部设备生效且不会因重新绑定或 Agent 重启而重置。
-
-### 7.2 `ip_dict`
-
-`ip_dict` 统一保存中央服务识别到的探测 IP 信息，不强制绑定设备。
-
-| 字段                  | 数据类型          | 键                                     | 说明                                                |
-| --------------------- | ----------------- | -------------------------------------- | --------------------------------------------------- |
-| `id`                | `INT`           | `PK`, `AUTO_INCREMENT`             | IP 记录自增主键                                     |
-| `device_related_id` | `INT`           | `FK → devices.id`                   | IP 所属设备内部主键；允许为空，空值表示尚未关联设备 |
-| `ip`                | `VARCHAR(45)` | `NOT NULL`, `UNIQUE`               | 规范化 IP 文本；同时支持 IPv4 和 IPv6               |
-| `ip_version`        | `INT`           | `NOT NULL`, `DEFAULT 4`, `CHECK` | IP 版本；仅允许`4` 或 `6`                       |
-| `isp`               | `INT`           | -                                      | IP 对应的运营商编码                                 |
-| `province`          | `INT`           | -                                      | IP 对应的省份编码                                   |
-| `city`              | `VARCHAR(64)`   | -                                      | IP 对应的城市名称                                   |
-| `public_status`     | `INT`           | `NOT NULL`, `DEFAULT 1`, `CHECK` | IP 公开状态；`0` 表示未公开，`1` 表示公开       |
-| `update_time`       | `INT64`         | `NOT NULL`                           | IP 及其网络属性最近更新时间，Unix 时间戳，单位秒    |
-
-同一设备可通过相同的 `device_related_id` 关联多条 `ip_dict` 记录。IP 记录创建时允许 `device_related_id` 为空，后续确认设备归属时可将其更新为对应的 `devices.id`。发现已属于该设备的 IP 时复用其 `id`，刷新网络属性和 `update_time`，但不得覆盖已有的 `public_status`；`ip` 的唯一约束保证同一个公网 IP 只对应一条记录。
-
-### 7.3 `devices`
-
-| 字段                 | 数据类型        | 键                                     | 说明                                                        |
-| -------------------- | --------------- | -------------------------------------- | ----------------------------------------------------------- |
-| `id`               | `INT`         | `PK`, `AUTO_INCREMENT`             | 设备记录自增主键                                            |
-| `device_id`        | `VARCHAR(64)` | `UNIQUE`                             | Agent 首次绑定时生成的稳定设备标识                          |
-| `user_id`          | `INT`         | `FK → users.id`                     | 关联`users.id`；绑定前允许为空，关联用户删除后置空        |
-| `on_demand_status` | `INT`         | `NOT NULL`, `DEFAULT 1`, `CHECK` | 是否接受临时 IP 按需任务；`0`=关闭、`1`=开启            |
-| `last_seen_at`     | `INT64`       | -                                      | 最近一次通过身份校验的控制任务轮询时间，Unix 时间戳，单位秒 |
-| `created_time`     | `INT64`       | -                                      | 创建时间，Unix 时间戳，单位秒                               |
-| `updated_time`     | `INT64`       | -                                      | 更新时间，Unix 时间戳，单位秒                               |
-
-绑定设备时，中央服务更新 `devices.user_id`，并将已获取的公网 IPv4/IPv6 写入或更新 `ip_dict`，关联对应 `devices.id`；新增 IP 不覆盖该设备已有记录。`on_demand_status` 默认开启，用户后续可在多设备管理中关闭单个设备的按需探测能力；关闭只阻止新任务创建，已进入执行中的任务允许完成并上报。
-
-持续探测状态表统一采用 `probe_state_{type}` 命名格式，其中 `{type}` 为小写协议名称。
-
-### 7.4 `probe_state_icmp`
-
-保存每个自然分钟窗口的 ICMP 探测状态。
-
-| 字段             | 数据类型     | 键                                    | 说明                                       |
-| ---------------- | ------------ | ------------------------------------- | ------------------------------------------ |
-| `time_id`      | `INT64`    | `PK` 组成部分，`INDEX`            | 窗口结束 Unix 时间戳，单位秒               |
-| `source_ip_id` | `INT`      | `PK` 组成部分，`FK → ip_dict.id` | 发起探测的源公网 IP 记录                   |
-| `target_ip_id` | `INT`      | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                           |
-| `probe_mode`   | `INT`      | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省           |
-| `loss_rate`    | `INT`      | `NOT NULL`, `CHECK`               | ICMP 丢包率，0 至 1000 的整数千分比        |
-| `rtt_ms`       | `INT`      | `NOT NULL`                          | ICMP 整数毫秒 RTT；100% 丢包时写入`1000` |
-
-### 7.5 `probe_state_tcp`
-
-保存每个自然分钟窗口的 TCP 探测状态。
-
-| 字段             | 数据类型     | 键                                    | 说明                                      |
-| ---------------- | ------------ | ------------------------------------- | ----------------------------------------- |
-| `time_id`      | `INT64`    | `PK` 组成部分，`INDEX`            | 窗口结束 Unix 时间戳，单位秒              |
-| `source_ip_id` | `INT`      | `PK` 组成部分，`FK → ip_dict.id` | 发起探测的源公网 IP 记录                  |
-| `target_ip_id` | `INT`      | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                          |
-| `probe_mode`   | `INT`      | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省          |
-| `loss_rate`    | `INT`      | `NOT NULL`, `CHECK`               | TCP 丢包率，0 至 1000 的整数千分比        |
-| `rtt_ms`       | `INT`      | `NOT NULL`                          | TCP 整数毫秒 RTT；100% 丢包时写入`1000` |
-
-### 7.6 `probe_state_udp`
-
-保存每个自然分钟窗口的 UDP 探测状态。
-
-| 字段             | 数据类型     | 键                                    | 说明                                      |
-| ---------------- | ------------ | ------------------------------------- | ----------------------------------------- |
-| `time_id`      | `INT64`    | `PK` 组成部分，`INDEX`            | 窗口结束 Unix 时间戳，单位秒              |
-| `source_ip_id` | `INT`      | `PK` 组成部分，`FK → ip_dict.id` | 发起探测的源公网 IP 记录                  |
-| `target_ip_id` | `INT`      | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                          |
-| `probe_mode`   | `INT`      | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省          |
-| `loss_rate`    | `INT`      | `NOT NULL`, `CHECK`               | UDP 丢包率，0 至 1000 的整数千分比        |
-| `rtt_ms`       | `INT`      | `NOT NULL`                          | UDP 整数毫秒 RTT；100% 丢包时写入`1000` |
-
-三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务根据上报的 `source_ip` 解析源 `ip_dict.id`，并遍历 `targets`，根据每个全局唯一的 `target_ip` 解析目标 `ip_dict.id` 及其 `device_related_id`；源 IP 必须属于 `device_id`，目标 IP 必须已关联其他设备，且两者的 `ip_version` 必须相同并等于上报值，任一目标的归属、版本或分类不匹配时拒绝整份上报。`ip_version` 由 `source_ip_id` 和 `target_ip_id` 关联的 `ip_dict.ip_version` 保存，不在状态表中重复存储；`probe_mode` 转换为数值编码，API 中的整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 分别直接写入 `loss_rate` 与 `rtt_ms`。
-
-### 7.7 `alert_events`
-
-告警事件按自然分钟、源地址、目标地址、协议和分类聚合保存；一个聚合维度在同一窗口内最多保存一条记录。
-
-| 字段              | 数据类型        | 键                   | 说明                                           |
-| ----------------- | --------------- | -------------------- | ---------------------------------------------- |
-| `event_id`      | `VARCHAR(36)` | `PK`               | Agent 生成的事件唯一标识，同时作为告警幂等键   |
-| `source_ip_id`  | `INT`         | `FK → ip_dict.id` | 发起探测的源公网 IP 记录                       |
-| `target_ip_id`  | `INT`         | `FK → ip_dict.id` | 发生丢包的目标公网 IP 记录                     |
-| `protocol_type` | `INT`         | `CHECK`            | 协议编码：`1`=ICMP、`2`=TCP、`3`=UDP     |
-| `probe_mode`    | `INT`         | `CHECK`            | 目标分类编码：`1`=异网、`2`=跨省           |
-| `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
-| `message`       | `TEXT`        | -                    | 需要微信通知时生成的告警消息正文；未通知时为空 |
-
-中央服务根据告警中的 `device_id` 和 `source_ip` 查询归属匹配的 `ip_dict.id` 并写入 `source_ip_id`，根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 及其 `device_related_id` 并写入 `target_ip_id`，同时校验源目标均已关联设备且不是同一设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件分类符合源设备所属用户的 `alert_type` 且用户仍关注服务号时，中央服务生成并持久化 `message`；不符合时保存空值。
-
-### 7.8 `on_demand_executions`
-
-一条记录对应一次可以被多个用户查询共享的实际探测执行。
-
-| 字段                | 数据类型          | 键                         | 说明                                                           |
-| ------------------- | ----------------- | -------------------------- | -------------------------------------------------------------- |
-| `id`              | `INT`           | `PK`, `AUTO_INCREMENT` | 执行内部主键                                                   |
-| `target_ip`       | `VARCHAR(45)` | `NOT NULL`               | 规范化临时目标 IP 文本快照                                     |
-| `ip_version`      | `INT`           | `NOT NULL`, `CHECK`    | IP 版本；仅允许`4` 或 `6`                                  |
-| `target_isp`      | `INT`           | -                          | 创建时识别的目标 ISP                                           |
-| `target_province` | `INT`           | -                          | 创建时识别的目标省份                                           |
-| `active_key`      | `VARCHAR(64)`   | `UNIQUE`                 | 活动执行去重键，进入终态后置空                                 |
-| `status`          | `INT`           | `NOT NULL`, `CHECK`    | `1`=排队、`2`=执行、`3`=完成、`4`=部分完成、`5`=失败 |
-| `created_at`      | `INT64`         | `NOT NULL`               | 创建时间                                                       |
-| `started_at`      | `INT64`         | -                          | 首个节点开始时间                                               |
-| `finished_at`     | `INT64`         | -                          | 执行进入终态的时间                                             |
-
-`active_key` 由查询的目标IP生成。中央服务在事务内插入活动执行，唯一键冲突时复用已有执行记录 `id`；执行进入终态后将 `active_key` 置空。目标及网络属性直接保存在执行中，不再单独维护临时 IP 字典。
-
-### 7.9 `probe_queries`
-
-一条记录对应一个用户发起的临时 IP 查询，是访问控制、配额和查询历史的边界。
-
-| 字段             | 数据类型 | 键                                | 说明                     |
-| ---------------- | -------- | --------------------------------- | ------------------------ |
-| `id`           | `INT`  | `PK`, `AUTO_INCREMENT`        | 用户查询内部主键         |
-| `user_id`      | `INT`  | `FK → users.id`, `INDEX`     | 发起查询的用户           |
-| `execution_id` | `INT`  | `FK → on_demand_executions.id` | 关联的实际执行           |
-| `created_at`   | `INT64` | `NOT NULL`                      | 创建时间                 |
-| `expires_at`   | `INT64` | `NOT NULL`                      | 用户可读取结果的截止时间 |
-
-即使多个查询关联同一 `execution_id`，也必须分别保留自己的 `id`。查询状态直接取关联执行的状态；结果查询以查询记录 `id + user_id` 校验权限。
-
-### 7.10 `on_demand_node_tasks`
-
-保存一次执行分配给每个在线节点的任务状态和探测结果。
-
-| 字段                | 数据类型 | 键                                | 说明                                                           |
-| ------------------- | -------- | --------------------------------- | -------------------------------------------------------------- |
-| `id`              | `INT`  | `PK`, `AUTO_INCREMENT`        | 节点任务及结果幂等键                                           |
-| `execution_id`    | `INT`  | `FK → on_demand_executions.id` | 所属执行                                                       |
-| `probe_device_id` | `INT`  | `FK → devices.id`              | 执行探测的 Agent 设备内部主键                                  |
-| `source_ip_id`    | `INT`  | `FK → ip_dict.id`              | 选定的节点源 IP                                                |
-| `probe_modes`     | `INT`  | `NOT NULL`, `CHECK`           | 分类集合：`1`=异网、`2`=跨省、`3`=两者                   |
-| `status`          | `INT`  | `NOT NULL`, `CHECK`           | `1`=待领取、`2`=执行中、`3`=完成、`4`=超时、`5`=失败 |
-| `result_data`     | `JSON` | -                                 | 三种协议的整数千分比丢包率和整数毫秒平均延迟                   |
-| `started_at`      | `INT64` | -                                 | 节点开始执行时间                                               |
-| `finished_at`     | `INT64` | -                                 | 节点任务完成时间                                               |
-
-`execution_id + probe_device_id` 必须唯一，保证同一设备只执行一次。节点源 IP、ISP 和省份通过 `source_ip_id` 关联 `ip_dict` 获取，不重复保存快照；被节点任务引用的 `ip_dict` 记录不得硬删除，也不得原地修改 `ip`。任务完成时在同一事务内写入完整 `result_data` 并将状态改为完成；失败或超时时 `result_data` 为空。`result_data` 必须包含 `icmp`、`tcp`、`udp` 三项，每项的 `loss_rate` 为 0 至 1000 的整数千分比，`average_latency_ms` 为整数。
+数据库表结构、字段定义、约束、索引及数据编码规则统一维护在 [数据库设计文档](./database_schema_design.md) 中，本节不再重复描述。
 
 ## 8. Agent 本地配置
 
@@ -633,13 +477,13 @@ device:
 
 中央服务在设备绑定或刷新源地址时，分别查询公网 IPv4 和 IPv6 的 IP 归属信息，从匹配记录中提取运营商并写入对应 IP 记录的 `ip_dict.isp`：`1` 为电信、`2` 为移动、`3` 为联通、`4` 为其他。
 
-Agent 查询目标时，中央服务为当前公网 IPv4 生成 `cross_isp_ipv4_targets`，并仅在 `source_ipv6` 有效时生成 `cross_isp_ipv6_targets`。每个列表只选择 `ip_dict.public_status = 1`、具有有效同版本公网 IP、归属于其他设备且 `ip_dict.isp` 与对应源 IP 不同的记录。候选目标不限于当前用户的设备；公开状态只授权将该公网 IP 用于探测，不授权返回设备绑定用户信息。运营商编码 `4` 表示其他运营商，只要与对应源 IP 的编码不同即可入选。Agent 无论用户的 `alert_type` 是否包含异网告警都执行可用地址族的异网列表探测；只有 `alert_type` 为 `1` 或 `3` 时才向该用户发送异网告警。
+Agent 查询目标时，中央服务为当前公网 IPv4 生成 `cross_isp_ipv4_targets`，并仅在 `source_ipv6` 有效时生成 `cross_isp_ipv6_targets`。每个列表只选择 `ip_dict.public_status = 1`、具有有效同版本公网 IP、不是当前源 IP 或当前设备其他 IP，且 `ip_dict.isp` 与对应源 IP 不同的记录。候选目标不要求关联设备；公开状态只授权将该公网 IP 用于探测，不授权返回设备绑定用户信息。运营商编码 `4` 表示其他运营商，只要与对应源 IP 的编码不同即可入选。Agent 无论用户的 `alert_type` 是否包含异网告警都执行可用地址族的异网列表探测；只有 `alert_type` 为 `1` 或 `3` 时才向该用户发送异网告警。
 
 ## 10. 跨省探测告警
 
 中央服务将匹配记录的“省份-城市”字段拆分：省份归一化后写入 `ip_dict.province`（未知为 `1`），城市名称写入 `ip_dict.city`。
 
-Agent 查询目标时，中央服务为当前公网 IPv4 生成 `cross_province_ipv4_targets`，并仅在 `source_ipv6` 有效时生成 `cross_province_ipv6_targets`。每个列表只选择 `ip_dict.public_status = 1`、具有有效同版本公网 IP、归属于其他设备且 `ip_dict.province` 与对应源 IP 不同的记录。对应源 IP 和候选 IP 的省份均必须已明确识别，未知省份不得参与跨省探测；ISP 是否相同不影响跨省分类的筛选结果。候选目标不限于当前用户的设备，城市仅用于展示和后续同省跨城市筛选。Agent 无论用户的 `alert_type` 是否包含跨省告警都执行可用地址族的跨省列表探测；只有 `alert_type` 为 `2` 或 `3` 时才向该用户发送跨省告警。
+Agent 查询目标时，中央服务为当前公网 IPv4 生成 `cross_province_ipv4_targets`，并仅在 `source_ipv6` 有效时生成 `cross_province_ipv6_targets`。每个列表只选择 `ip_dict.public_status = 1`、具有有效同版本公网 IP、不是当前源 IP 或当前设备其他 IP，且 `ip_dict.province` 与对应源 IP 不同的记录。对应源 IP 和候选 IP 的省份均必须已明确识别，未知省份不得参与跨省探测；ISP 是否相同不影响跨省分类的筛选结果。候选目标不要求关联设备，城市仅用于展示和后续同省跨城市筛选。Agent 无论用户的 `alert_type` 是否包含跨省告警都执行可用地址族的跨省列表探测；只有 `alert_type` 为 `2` 或 `3` 时才向该用户发送跨省告警。
 
 ## 11. 部署方案
 
