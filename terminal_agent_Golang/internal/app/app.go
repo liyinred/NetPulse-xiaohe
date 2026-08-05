@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"net/netip"
 	"time"
 
 	"netpulse/terminal-agent/internal/client"
@@ -15,8 +16,10 @@ import (
 )
 
 const (
-	backendBaseURL = "http://175.4.50.59:8086"
-	requestTimeout = 10 * time.Second
+	backendBaseURL  = "http://175.4.50.59:8086"
+	requestTimeout  = 10 * time.Second
+	ipv4RetryDelay  = 3 * time.Second
+	ipv4MaxAttempts = 3
 )
 
 // Run 持久化设备标识，并等待中央服务通过二维码轮询完成设备绑定。
@@ -46,13 +49,38 @@ func Run(ctx context.Context, output io.Writer) error {
 		if err != nil {
 			return err
 		}
+		agentConfig.SetDeviceID(deviceID)
 	}
-	agentConfig.SetDeviceID(deviceID)
 	if err := config.Write(configPath, agentConfig); err != nil {
 		return err
 	}
 
 	backend := client.NewBackend(backendBaseURL, requestTimeout)
+	sourceIPv4, err := waitForPublicIPv4(ctx, output, backend)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "已获取公网 IPv4: %s\n", sourceIPv4)
+
+	var sourceIPv6 *netip.Addr
+	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
+	if ipv6Err != nil {
+		fmt.Fprintf(output, "未获取到公网 IPv6，将继续启动: %v\n", ipv6Err)
+	} else {
+		sourceIPv6 = &publicIPv6
+		fmt.Fprintf(output, "已获取公网 IPv6: %s\n", publicIPv6)
+	}
+
+	bindingInfo, err := backend.CheckBinding(ctx, deviceID, sourceIPv4, sourceIPv6)
+	if err != nil {
+		return fmt.Errorf("设备绑定失败: %w", err)
+	}
+	if bindingInfo != nil {
+		fmt.Fprintln(output, "设备已绑定，中央服务已刷新当前公网地址。")
+		printBindingInfo(output, *bindingInfo)
+		return nil
+	}
+
 	qrCode, err := backend.RequestQRCode(ctx)
 	if err != nil {
 		return err
@@ -62,18 +90,89 @@ func Run(ctx context.Context, output io.Writer) error {
 	}
 
 	fmt.Fprintln(output, "请使用微信扫描二维码完成登录，正在等待确认...")
-	if err := backend.WaitForLogin(
+	bindingInfoValue, err := backend.WaitForLogin(
 		ctx,
 		qrCode.SceneString,
 		deviceID,
+		sourceIPv4,
+		sourceIPv6,
 		time.Duration(qrCode.ExpireSeconds)*time.Second,
-	); err != nil {
-		return err
+	)
+	if err != nil {
+		return fmt.Errorf("设备绑定失败: %w", err)
 	}
 
 	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定。")
-	fmt.Fprintf(output, "device_id: %s\n", deviceID)
+	printBindingInfo(output, bindingInfoValue)
 	return nil
+}
+
+// printBindingInfo 在终端展示绑定成功后的设备和网络信息。
+//
+// 参数:
+//   - output: 接收设备信息的 Writer。
+//   - bindingInfo: 中央服务返回的设备网络信息。
+//
+// 返回值: 无。
+func printBindingInfo(output io.Writer, bindingInfo client.BindingInfo) {
+	fmt.Fprintf(output, "设备 ID: %s\n", bindingInfo.DeviceID)
+	fmt.Fprintf(output, "公网 IPv4: %s\n", bindingInfo.PublicIPv4)
+	if bindingInfo.PublicIPv6 != nil {
+		fmt.Fprintf(output, "公网 IPv6: %s\n", *bindingInfo.PublicIPv6)
+	}
+	fmt.Fprintf(
+		output,
+		"省市: %s %s\n",
+		bindingInfo.ProvinceName,
+		bindingInfo.City,
+	)
+	fmt.Fprintf(output, "运营商: %s\n", bindingInfo.ISPName)
+}
+
+// waitForPublicIPv4 最多尝试三次获取公网 IPv4。
+//
+// 参数:
+//   - ctx: 控制重试取消的 Context。
+//   - output: 输出失败提示和重试状态的 Writer。
+//   - backend: FastAPI 中央服务 Client。
+//
+// 返回值: 获取成功的公网 IPv4；取消或三次尝试均失败时返回错误。
+func waitForPublicIPv4(
+	ctx context.Context,
+	output io.Writer,
+	backend *client.Backend,
+) (netip.Addr, error) {
+	for attempt := 1; ; attempt++ {
+		publicIPv4, err := backend.GetPublicIPv4(ctx)
+		if err == nil {
+			return publicIPv4, nil
+		}
+		if attempt >= ipv4MaxAttempts {
+			return netip.Addr{}, fmt.Errorf(
+				"公网 IPv4 获取失败，已尝试 %d 次: %w",
+				ipv4MaxAttempts,
+				err,
+			)
+		}
+		fmt.Fprintf(
+			output,
+			"第 %d/%d 次公网 IPv4 获取失败，将在 %s 后重试: %v\n",
+			attempt,
+			ipv4MaxAttempts,
+			ipv4RetryDelay,
+			err,
+		)
+
+		retryTimer := time.NewTimer(ipv4RetryDelay)
+		select {
+		case <-ctx.Done():
+			if !retryTimer.Stop() {
+				<-retryTimer.C
+			}
+			return netip.Addr{}, ctx.Err()
+		case <-retryTimer.C:
+		}
+	}
 }
 
 // printQRCode 将二维码 URL 编码为适合终端展示的紧凑字符图形。

@@ -3,16 +3,20 @@
 import secrets
 import string
 from datetime import datetime
+from ipaddress import IPv4Address, IPv6Address
+from time import time
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 
+from app.db.session import SessionLocal
+from app.models.user import User
+from app.schemas.device import build_device_network_info
 from app.schemas.wechat import QRCodeResponse, QRCodeStatusResponse
 from app.services.device import bind_device_by_scene
 from app.services.network import IPLookupError
 from app.services.wechat import (
-    QRCODE_EXPIRE_SECONDS,
     WECHAT_QRCODE_IMAGE_URL,
     create_qrcode,
 )
@@ -40,7 +44,7 @@ def generate_scene_str() -> str:
 
 @router.post("/qrcode", response_model=QRCodeResponse)
 async def create_parameterized_qrcode() -> QRCodeResponse:
-    """生成有效期为 30 分钟的微信带参数二维码。
+    """生成并记录有效期为 5 分钟的微信带参数二维码。
 
     参数:
         无。
@@ -60,6 +64,17 @@ async def create_parameterized_qrcode() -> QRCodeResponse:
     if not isinstance(expire_seconds, int) or expire_seconds <= 0:
         raise HTTPException(status_code=502, detail="微信二维码有效期无效")
 
+    current_time = int(time())
+    with SessionLocal.begin() as session:
+        session.add(
+            User(
+                scene_str=scene_str,
+                subscribe_status=0,
+                created_time=current_time,
+                updated_time=current_time,
+            )
+        )
+
     image_url = f"{WECHAT_QRCODE_IMAGE_URL}?{urlencode({'ticket': ticket})}"
     return QRCodeResponse(
         scene_str=scene_str,
@@ -72,16 +87,18 @@ async def create_parameterized_qrcode() -> QRCodeResponse:
 
 @router.get("/qrcode/status", response_model=QRCodeStatusResponse)
 async def get_qrcode_status(
-    request: Request,
     scene_str: str = Query(..., min_length=16, max_length=16),
     device_id: str = Query(..., min_length=1, max_length=64),
+    source_ipv4: IPv4Address = Query(...),
+    source_ipv6: IPv6Address | None = Query(None),
 ) -> QRCodeStatusResponse:
     """查询二维码状态，并在匹配成功时直接绑定设备。
 
     参数:
-        request: 用于读取客户端连接源地址的 FastAPI Request。
         scene_str: Agent 创建二维码时获得的 16 位场景值。
         device_id: Agent 本地持久化的设备标识。
+        source_ipv4: 本次启动获取到的公网 IPv4。
+        source_ipv6: 本次启动获取到的公网 IPv6，未获取到时为空。
     返回:
         是否已匹配有效关注用户并完成设备绑定。
     """
@@ -89,10 +106,16 @@ async def get_qrcode_status(
         binding_result = await bind_device_by_scene(
             device_id,
             scene_str,
-            request.client.host if request.client is not None else None,
+            source_ipv4,
+            source_ipv6,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except IPLookupError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return QRCodeStatusResponse(matched=binding_result is not None)
+    if binding_result is None:
+        return QRCodeStatusResponse(matched=False)
+    return QRCodeStatusResponse(
+        matched=True,
+        device=build_device_network_info(binding_result),
+    )

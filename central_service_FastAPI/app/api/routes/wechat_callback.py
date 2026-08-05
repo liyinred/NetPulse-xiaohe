@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import logging
 import struct
+from time import time
 import xml.etree.ElementTree as ET
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -218,14 +219,32 @@ def update_subscription_user(session: Session, message: dict[str, str]) -> bool:
         raise ValueError("关注状态事件缺少有效的 FromUserName")
 
     scene_str = extract_scene_str(message.get("EventKey"))
+    current_time = int(time())
     user = session.scalar(select(User).where(User.openid == openid))
+    pending_user = None
+    if scene_str is not None:
+        pending_user = session.scalar(
+            select(User).where(User.scene_str == scene_str)
+        )
     if user is None:
-        user = User(openid=openid, scene_str=scene_str)
-        session.add(user)
+        if pending_user is not None:
+            user = pending_user
+            user.openid = openid
+        else:
+            user = User(
+                openid=openid,
+                scene_str=scene_str,
+                created_time=current_time,
+            )
+            session.add(user)
+    elif pending_user is not None and pending_user.id != user.id:
+        session.delete(pending_user)
+        session.flush()
 
     user.subscribe_status = subscribe_status
     if scene_str is not None:
         user.scene_str = scene_str
+    user.updated_time = current_time
     return True
 
 

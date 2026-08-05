@@ -13,7 +13,7 @@ from app.core.config import WECHAT_APP_ID, WECHAT_APP_SECRET
 WECHAT_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
 WECHAT_QRCODE_URL = "https://api.weixin.qq.com/cgi-bin/qrcode/create"
 WECHAT_QRCODE_IMAGE_URL = "https://mp.weixin.qq.com/cgi-bin/showqrcode"
-QRCODE_EXPIRE_SECONDS = 30 * 60
+QRCODE_EXPIRE_SECONDS = 5 * 60
 ACCESS_TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
 WECHAT_API_TIMEOUT_SECONDS = 10.0
 

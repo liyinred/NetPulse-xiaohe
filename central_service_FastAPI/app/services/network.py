@@ -1,7 +1,7 @@
 """公网 IPv4 归属信息查询服务。"""
 
 from dataclasses import dataclass
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, ip_address
 from typing import Any
 
 import httpx
@@ -48,6 +48,7 @@ PROVINCE_CODES = {
     "台湾": 34,
     "澳门": 35,
 }
+INVALID_NETWORK_VALUES = {"", "-", "n/a", "none", "null", "unknown", "未知"}
 
 
 class IPLookupError(RuntimeError):
@@ -64,6 +65,34 @@ class NetworkInfo:
     isp_name: str
     province_name: str
     city_name: str
+
+
+def parse_public_address(
+    client_host: str | None,
+    expected_version: int,
+) -> IPv4Address | IPv6Address:
+    """解析中央服务观察到的指定版本公网地址。
+
+    参数:
+        client_host: FastAPI 识别的客户端连接源地址。
+        expected_version: 期望的 IP 版本，仅支持 4 或 6。
+    返回:
+        版本匹配且可公开路由的 IP 地址。
+    """
+    if client_host is None:
+        raise ValueError("无法识别客户端地址")
+    try:
+        public_ip = ip_address(client_host)
+    except ValueError as exc:
+        raise ValueError("客户端地址不是有效 IP") from exc
+
+    if isinstance(public_ip, IPv6Address) and public_ip.ipv4_mapped is not None:
+        public_ip = public_ip.ipv4_mapped
+    if public_ip.version != expected_version:
+        raise ValueError(f"客户端连接不是公网 IPv{expected_version}")
+    if not public_ip.is_global:
+        raise ValueError(f"客户端地址不是公网 IPv{expected_version}")
+    return public_ip
 
 
 async def lookup_network(public_ipv4: IPv4Address) -> NetworkInfo:
@@ -91,13 +120,19 @@ async def lookup_network(public_ipv4: IPv4Address) -> NetworkInfo:
     province_name, city_name, isp_name = parse_ip_lookup_data(
         payload["data"], public_ipv4
     )
+    province_name = validate_network_value(province_name, "省份")
+    city_name = validate_network_value(city_name, "城市")
+    isp_name = validate_network_value(isp_name, "运营商")
+    province = normalize_province(province_name)
+    if province == 1:
+        raise IPLookupError("IP 归属查询未返回可识别的省份")
     return NetworkInfo(
         public_ipv4=public_ipv4,
         isp=normalize_isp(isp_name),
-        province=normalize_province(province_name),
-        isp_name=display_name(isp_name),
-        province_name=display_name(province_name),
-        city_name=display_name(city_name),
+        province=province,
+        isp_name=isp_name,
+        province_name=province_name,
+        city_name=city_name,
     )
 
 
@@ -132,15 +167,19 @@ def parse_ip_lookup_data(
     raise IPLookupError("IP 归属查询响应未包含客户端地址")
 
 
-def display_name(value: str) -> str:
-    """清理归属字段并为空值提供展示文本。
+def validate_network_value(value: str, field_name: str) -> str:
+    """校验 IP 归属字段包含可用于绑定和展示的信息。
 
     参数:
-        value: 接口返回的省份或运营商名称。
+        value: 接口返回的归属字段值。
+        field_name: 用于错误信息的字段名称。
     返回:
-        清理后的名称；空值返回“未知”。
+        去除首尾空白后的有效字段值。
     """
-    return value.strip() or "未知"
+    normalized = value.strip()
+    if normalized.lower() in INVALID_NETWORK_VALUES:
+        raise IPLookupError(f"IP 归属查询未返回有效{field_name}")
+    return normalized
 
 
 def normalize_isp(isp: str) -> int:

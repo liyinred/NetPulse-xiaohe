@@ -1,6 +1,8 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,38 @@ import (
 )
 
 const maxResponseSize = 1 << 20
+
+// newJSONRequest 创建包含 JSON 请求体的 HTTP Request。
+//
+// 参数:
+//   - ctx: 控制请求取消的 Context。
+//   - method: HTTP 请求方法。
+//   - endpoint: 完整请求地址。
+//   - payload: 要编码的结构化请求数据。
+//
+// 返回值: 已设置 Content-Type 的请求；编码或创建失败时返回错误。
+func newJSONRequest(
+	ctx context.Context,
+	method string,
+	endpoint string,
+	payload any,
+) (*http.Request, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("编码 JSON 请求失败: %w", err)
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		method,
+		endpoint,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	return request, nil
+}
 
 // executeJSONRequest 执行 HTTP 请求并解析受大小限制的 JSON 响应。
 //

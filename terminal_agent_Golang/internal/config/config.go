@@ -14,10 +14,9 @@ import (
 
 const fileName = "config.yaml"
 
-// Config 保存 Agent 本地设备和监测配置。
+// Config 保存 Agent 本地设备标识配置。
 type Config struct {
-	Device  DeviceConfig   `yaml:"device"`
-	Monitor map[string]any `yaml:"monitor,omitempty"`
+	Device DeviceConfig `yaml:"device"`
 }
 
 // DeviceConfig 保存 Agent 本地设备标识。

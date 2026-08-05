@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+from app.schemas.device import DeviceNetworkInfo
+
 
 class QRCodeResponse(BaseModel):
     """带参数二维码创建结果。"""
@@ -17,3 +19,4 @@ class QRCodeStatusResponse(BaseModel):
     """带参数二维码登录状态。"""
 
     matched: bool
+    device: DeviceNetworkInfo | None = None
