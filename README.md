@@ -6,7 +6,7 @@
 
 ```powershell
 conda activate pcdn-tx
-uvicorn main:app --reload --app-dir wechat_netwatch_FastAPI --host 0.0.0.0 --port 8086
+uvicorn main:app --reload --app-dir central_service_FastAPI --host 0.0.0.0 --port 8086
 ```
 
 ## Go Agent

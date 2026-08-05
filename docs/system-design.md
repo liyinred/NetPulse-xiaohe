@@ -480,7 +480,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 | --------------------- | ----------------- | -------------------------------------- | --------------------------------------------------- |
 | `id`                | `INT`           | `PK`, `AUTO_INCREMENT`             | IP 记录自增主键                                     |
 | `device_related_id` | `INT`           | `FK → devices.id`                   | IP 所属设备内部主键；允许为空，空值表示尚未关联设备 |
-| `ip`                | `VARBINARY(16)` | `NOT NULL`, `UNIQUE`               | IP 二进制值；IPv4 为 4 字节，IPv6 为 16 字节        |
+| `ip`                | `VARCHAR(45)` | `NOT NULL`, `UNIQUE`               | 规范化 IP 文本；同时支持 IPv4 和 IPv6               |
 | `ip_version`        | `INT`           | `NOT NULL`, `DEFAULT 4`, `CHECK` | IP 版本；仅允许`4` 或 `6`                       |
 | `isp`               | `INT`           | -                                      | IP 对应的运营商编码                                 |
 | `province`          | `INT`           | -                                      | IP 对应的省份编码                                   |
@@ -568,7 +568,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 | 字段                | 数据类型          | 键                         | 说明                                                           |
 | ------------------- | ----------------- | -------------------------- | -------------------------------------------------------------- |
 | `id`              | `INT`           | `PK`, `AUTO_INCREMENT` | 执行内部主键                                                   |
-| `target_ip`       | `VARBINARY(16)` | `NOT NULL`               | 规范化临时目标 IP 快照                                         |
+| `target_ip`       | `VARCHAR(45)` | `NOT NULL`               | 规范化临时目标 IP 文本快照                                     |
 | `ip_version`      | `INT`           | `NOT NULL`, `CHECK`    | IP 版本；仅允许`4` 或 `6`                                  |
 | `target_isp`      | `INT`           | -                          | 创建时识别的目标 ISP                                           |
 | `target_province` | `INT`           | -                          | 创建时识别的目标省份                                           |

@@ -102,9 +102,10 @@ def _upsert_ip_record(
     返回:
         无返回值；记录变更写入当前事务。
     """
-    ip_record = session.scalar(select(IPDict).where(IPDict.ip == public_ip.packed))
+    ip_text = str(public_ip)
+    ip_record = session.scalar(select(IPDict).where(IPDict.ip == ip_text))
     if ip_record is None:
-        ip_record = IPDict(ip=public_ip.packed)
+        ip_record = IPDict(ip=ip_text)
         session.add(ip_record)
 
     ip_record.device_related_id = device_id

@@ -1,7 +1,6 @@
 """IP 字典 ORM 模型。"""
 
 from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, String, text
-from sqlalchemy.dialects.mysql import VARBINARY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -28,7 +27,7 @@ class IPDict(Base):
         ForeignKey("devices.id"),
         nullable=True,
     )
-    ip: Mapped[bytes] = mapped_column(VARBINARY(16), nullable=False, unique=True)
+    ip: Mapped[str] = mapped_column(String(45), nullable=False, unique=True)
     ip_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=4, server_default=text("4")
     )

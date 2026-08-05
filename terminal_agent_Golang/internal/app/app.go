@@ -64,9 +64,7 @@ func Run(ctx context.Context, output io.Writer) error {
 
 	var sourceIPv6 *netip.Addr
 	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
-	if ipv6Err != nil {
-		fmt.Fprintf(output, "未获取到公网 IPv6，将继续启动: %v\n", ipv6Err)
-	} else {
+	if ipv6Err == nil {
 		sourceIPv6 = &publicIPv6
 		fmt.Fprintf(output, "已获取公网 IPv6: %s\n", publicIPv6)
 	}
@@ -89,7 +87,7 @@ func Run(ctx context.Context, output io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintln(output, "请使用微信扫描二维码完成登录，正在等待确认...")
+	fmt.Fprintln(output, "请使用微信扫描二维码完成服务号关注，正在等待确认...")
 	bindingInfoValue, err := backend.WaitForLogin(
 		ctx,
 		qrCode.SceneString,
@@ -99,10 +97,10 @@ func Run(ctx context.Context, output io.Writer) error {
 		time.Duration(qrCode.ExpireSeconds)*time.Second,
 	)
 	if err != nil {
-		return fmt.Errorf("设备绑定失败: %w", err)
+		return fmt.Errorf("设备绑定更新失败: %w", err)
 	}
 
-	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定。")
+	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
 	printBindingInfo(output, bindingInfoValue)
 	return nil
 }

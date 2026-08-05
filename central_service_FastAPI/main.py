@@ -37,7 +37,7 @@ def create_app() -> FastAPI:
     返回:
         已注册业务路由的 FastAPI 应用。
     """
-    application = FastAPI(title="wechat_netwatch_FastAPI", lifespan=lifespan)
+    application = FastAPI(title="central_service_FastAPI", lifespan=lifespan)
     application.include_router(api_router)
     return application
 
