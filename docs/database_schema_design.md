@@ -60,7 +60,9 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 
 绑定设备时，中央服务更新 `devices.user_id`，并将已获取的公网 IPv4/IPv6 写入或更新 `ip_dict`，关联对应 `devices.id`；新增 IP 不覆盖该设备已有记录。`on_demand_status` 默认开启，用户后续可在多设备管理中关闭单个设备的按需探测能力；关闭只阻止新任务创建，已进入执行中的任务允许完成并上报。
 
-### 7.4 `icmp_probe_state`
+持续探测状态表统一采用 `probe_state_{type}` 命名格式，其中 `{type}` 为小写协议名称。
+
+### 7.4 `probe_state_icmp`
 
 保存每个自然分钟窗口的 ICMP 探测状态。
 
@@ -73,7 +75,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | ICMP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`                          | ICMP 整数毫秒 RTT；100% 丢包时写入`1000` |
 
-### 7.5 `tcp_probe_state`
+### 7.5 `probe_state_tcp`
 
 保存每个自然分钟窗口的 TCP 探测状态。
 
@@ -86,7 +88,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | TCP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`                          | TCP 整数毫秒 RTT；100% 丢包时写入`1000` |
 
-### 7.6 `udp_probe_state`
+### 7.6 `probe_state_udp`
 
 保存每个自然分钟窗口的 UDP 探测状态。
 

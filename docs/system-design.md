@@ -402,7 +402,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其 `device_related_id`，并校验源目标均已关联设备且不是同一设备、两者 `ip_dict.ip_version` 均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `icmp_probe_state`、`tcp_probe_state` 和 `udp_probe_state`。空 `targets` 上报同样记录幂等状态，但不写入协议状态表。
+中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其 `device_related_id`，并校验源目标均已关联设备且不是同一设备、两者 `ip_dict.ip_version` 均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`。空 `targets` 上报同样记录幂等状态，但不写入协议状态表。
 
 ### 6.2 单次丢包告警
 
@@ -504,7 +504,9 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 
 绑定设备时，中央服务更新 `devices.user_id`，并将已获取的公网 IPv4/IPv6 写入或更新 `ip_dict`，关联对应 `devices.id`；新增 IP 不覆盖该设备已有记录。`on_demand_status` 默认开启，用户后续可在多设备管理中关闭单个设备的按需探测能力；关闭只阻止新任务创建，已进入执行中的任务允许完成并上报。
 
-### 7.4 `icmp_probe_state`
+持续探测状态表统一采用 `probe_state_{type}` 命名格式，其中 `{type}` 为小写协议名称。
+
+### 7.4 `probe_state_icmp`
 
 保存每个自然分钟窗口的 ICMP 探测状态。
 
@@ -517,7 +519,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 | `loss_rate`    | `INT`      | `NOT NULL`, `CHECK`               | ICMP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`      | `NOT NULL`                          | ICMP 整数毫秒 RTT；100% 丢包时写入`1000` |
 
-### 7.5 `tcp_probe_state`
+### 7.5 `probe_state_tcp`
 
 保存每个自然分钟窗口的 TCP 探测状态。
 
@@ -530,7 +532,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 | `loss_rate`    | `INT`      | `NOT NULL`, `CHECK`               | TCP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`      | `NOT NULL`                          | TCP 整数毫秒 RTT；100% 丢包时写入`1000` |
 
-### 7.6 `udp_probe_state`
+### 7.6 `probe_state_udp`
 
 保存每个自然分钟窗口的 UDP 探测状态。
 

@@ -28,15 +28,15 @@ class ProbeStateMixin:
 class ICMPProbeState(ProbeStateMixin, Base):
     """保存每个自然分钟窗口的 ICMP 探测状态。"""
 
-    __tablename__ = "icmp_probe_state"
+    __tablename__ = "probe_state_icmp"
     __table_args__ = (
         CheckConstraint(
             "probe_mode IN (1, 2)",
-            name="ck_icmp_probe_state_probe_mode",
+            name="ck_probe_state_icmp_probe_mode",
         ),
         CheckConstraint(
             "loss_rate BETWEEN 0 AND 1000",
-            name="ck_icmp_probe_state_loss_rate",
+            name="ck_probe_state_icmp_loss_rate",
         ),
     )
 
@@ -44,15 +44,15 @@ class ICMPProbeState(ProbeStateMixin, Base):
 class TCPProbeState(ProbeStateMixin, Base):
     """保存每个自然分钟窗口的 TCP 探测状态。"""
 
-    __tablename__ = "tcp_probe_state"
+    __tablename__ = "probe_state_tcp"
     __table_args__ = (
         CheckConstraint(
             "probe_mode IN (1, 2)",
-            name="ck_tcp_probe_state_probe_mode",
+            name="ck_probe_state_tcp_probe_mode",
         ),
         CheckConstraint(
             "loss_rate BETWEEN 0 AND 1000",
-            name="ck_tcp_probe_state_loss_rate",
+            name="ck_probe_state_tcp_loss_rate",
         ),
     )
 
@@ -60,14 +60,14 @@ class TCPProbeState(ProbeStateMixin, Base):
 class UDPProbeState(ProbeStateMixin, Base):
     """保存每个自然分钟窗口的 UDP 探测状态。"""
 
-    __tablename__ = "udp_probe_state"
+    __tablename__ = "probe_state_udp"
     __table_args__ = (
         CheckConstraint(
             "probe_mode IN (1, 2)",
-            name="ck_udp_probe_state_probe_mode",
+            name="ck_probe_state_udp_probe_mode",
         ),
         CheckConstraint(
             "loss_rate BETWEEN 0 AND 1000",
-            name="ck_udp_probe_state_loss_rate",
+            name="ck_probe_state_udp_loss_rate",
         ),
     )
