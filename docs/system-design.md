@@ -4,12 +4,12 @@
 
 | 项目     | 内容                           |
 | -------- | ------------------------------ |
-| 文档版本 | v0.0.9                         |
+| 文档版本 | v0.0.10                        |
 | 更新日期 | 2026-08-05                     |
 | 技术栈   | Golang Agent、FastAPI 中央服务 |
 | 运行平台 | Linux                          |
 
-本项目用于在用户自有 Linux 服务器上持续探测异网和跨省网络质量，并支持用户对临时公网 IP 发起类似 ITDog 的按需查询。设备绑定成功后，Agent 无需用户选择探测类型，也无需用户手动输入持续监控目标 IP；Agent 自动向中央服务查询当前设备对应的异网与跨省目标 IP 列表，在相同 IP 版本内对两个分类列表按 IP 去重合并，并在单个 Go 进程内对合并后的目标执行 ICMP、TCP 和 UDP 探测。IPv4 源地址只探测 IPv4 目标，IPv6 源地址只探测 IPv6 目标；同一 IP 同时属于异网和跨省时只执行一次实际网络探测。每个整分钟窗口结束时，Agent 按 `device_id + probe_mode + ip_version + source_ip` 分组上报三种协议的探测结果，各目标的 `target_ip` 和汇总结果保存在 `targets` 数组中；任一单次探测发生丢包时，Agent 额外上报告警事件。用户在微信服务号中选择接收异网告警、跨省告警或同时接收两类告警，中央服务按用户的告警类型设置发送通知。
+本项目用于在用户自有 Linux 服务器上持续探测异网和跨省网络质量，并支持用户对临时公网 IP 发起类似 ITDog 的按需查询。设备绑定成功后，Agent 无需用户选择探测类型，也无需用户手动输入持续监控目标 IP；Agent 自动向中央服务查询当前设备对应的异网与跨省目标 IP 列表，在相同 IP 版本内对两个分类列表按 IP 去重合并，并在单个 Go 进程内对合并后的目标执行 ICMP、TCP 和 UDP 探测。IPv4 源地址只探测 IPv4 目标，IPv6 源地址只探测 IPv6 目标；同一 IP 同时属于异网和跨省时只执行一次实际网络探测。每个整分钟窗口结束时，Agent 按 `device_id + probe_mode + ip_version + source_ip` 分组上报三种协议的探测结果，各目标的 `target_ip` 和汇总结果保存在 `targets` 数组中；同一窗口内发生的丢包按目标、协议和分类聚合为告警批次上报。用户在微信服务号中选择接收异网告警、跨省告警或同时接收两类告警，中央服务按用户的告警类型设置发送通知。
 
 临时 IP 查询不要求目标安装 Agent，也不将目标伪装成设备。中央服务识别临时 IP 的 ISP、省份和 IP 版本后，默认选择与目标异网或跨省、当前在线且允许作为公开探测节点的同版本 Agent。每个选中节点对指定临时 IP 的 ICMP、TCP 和 UDP 分别发送 10 次探测，10 次发送安排在 1 秒发送窗口内，完成后向中央服务返回汇总结果。两个用户在同一活动执行期间以相同参数查询同一 IP 时，各自保留独立查询记录，但可共享同一次实际节点探测。
 
@@ -19,7 +19,7 @@
 2. 登录成功后由 Agent 自动查询当前设备按 IPv4/IPv6 分组的异网与跨省持续监控目标 IP 列表，不要求用户选择探测类型或输入持续监控目标 IP。
 3. 对相同 IP 版本的异网和跨省列表按 IP 去重合并，并对合并后的每个唯一目标 IP 固定执行 ICMP、TCP 和 UDP 三种探测。
 4. 每个整分钟窗口结束时，以 JSON 格式上报当前窗口的 Unix 时间戳、丢包率和平均延迟。
-5. 任一单次探测发生丢包时上报告警事件，并按用户在微信服务号中设置的告警类型发送通知。
+5. 每个自然分钟结束时聚合当前窗口的丢包告警，并按用户在微信服务号中设置的告警类型发送通知。
 6. 以单个 Linux 二进制和 `systemd` 服务方式持久部署，探测过程不创建子进程。
 7. 由中央服务一次查询并按探测分类和 IP 版本返回 ISP 不同或省份不同且处于公开状态的设备关联公网 IP。
 8. 支持临时公网 IP 按需查询，自动选择当前异网与跨省在线探测节点，每个节点在 1 秒发送窗口内分别执行 10 次 ICMP、TCP 和 UDP 探测并返回结果。
@@ -45,7 +45,7 @@
 
 ### 2.3 结果与告警上报
 
-系统分别处理分钟探测结果和单次丢包告警。Agent 在每个整分钟窗口结束时，按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组后上报；任一单次探测发生丢包时，立即额外上报一条带有 `probe_mode`、`ip_version` 和 `source_ip` 的告警事件。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务保存结果与事件，并根据告警事件中的 `device_id` 查询源设备所属用户的 `alert_type`；仅当该值包含对应告警类型时发送微信消息。
+系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束时，按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组后上报；同时按 `ip_version + probe_mode + source_ip + target_ip + protocol_type` 聚合当前窗口的丢包，每个聚合维度最多生成一条告警，所有告警通过一个 `alerts` 数组一次上报。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务保存结果与事件，并根据告警事件中的 `device_id` 查询源设备所属用户的 `alert_type`；仅当该值包含对应告警类型时发送微信消息。
 
 ### 2.4 持续探测与按需探测隔离
 
@@ -88,7 +88,7 @@ flowchart LR
 | Task Dispatcher      | 按设备原子分配按需任务并更新任务状态             |
 | Result Receiver      | 接收并保存整分钟窗口探测结果                     |
 | On-demand Receiver   | 幂等接收节点按需探测结果                         |
-| Alert Receiver       | 接收单次丢包告警事件并按用户告警类型路由通知     |
+| Alert Receiver       | 接收分钟聚合丢包告警并按用户告警类型路由通知     |
 | Notification Service | 根据设备绑定关系及用户告警类型发送微信消息       |
 
 ### 3.2 Agent 模块
@@ -205,11 +205,11 @@ Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及
 2. Agent 刷新中央服务返回的两个 IPv4 目标列表，以及 `source_ipv6` 有效时返回的两个 IPv6 目标列表，并处理列表中的全部目标。
 3. Agent 将两个 IPv4 列表中的 `public_ip` 解析为规范地址并合并去重，生成内部列表 `merged_ipv4_targets`；存在 IPv6 列表时以相同方式生成 `merged_ipv6_targets`。
 4. Agent 严格按相同 IP 版本执行探测：本机 IPv4 只探测 `merged_ipv4_targets`，本机 IPv6 只探测 `merged_ipv6_targets`。IPv6 不可用时不创建 `merged_ipv6_targets`。
-5. Agent 为合并列表中的每个唯一 IP 固定生成 ICMP、TCP 和 UDP 三个逻辑目标，并为每个逻辑目标启动独立 goroutine，在窗口开始时同时探测，不创建子进程、不分批执行。同一 IP 同时属于两个分类时不得重复创建 Driver 探测任务。ICMP Driver 按 IP 版本复用共享 socket，UDP 和 TCP Driver 使用对应地址族的 socket 并绑定本次逻辑目标的源地址。
+5. Agent 为合并列表中的每个唯一 IP 固定生成 ICMP、TCP 和 UDP 三个逻辑目标，并为每个逻辑目标启动独立 goroutine，在窗口开始时同时探测，不创建子进程、不分批执行。同一 IP 同时属于两个分类时不得重复创建 Driver 探测任务。ICMP Driver 按 IP 版本复用绑定通配地址的共享 socket，UDP 和 TCP Driver 不指定本地地址，由系统路由选择实际出口接口和地址。
 6. 每个逻辑目标在每个自然分钟窗口内固定执行 100 次探测。发送间隔由 `probe_interval = window_duration / probe_count` 计算；窗口固定为 60 秒，因此发送间隔为 `60s / 100 = 600ms`。
 7. 第 `i` 次探测的计划发送时刻为 `window_start + i * probe_interval`，其中 `i` 从 0 到 99。Scheduler 使用基于窗口起点的绝对计划时刻，避免单次探测耗时造成累计漂移；最后一次发送时刻为窗口开始后的 59.4 秒。
-8. 各 Driver 按协议语义匹配响应并生成统一结果；任一单次探测判定为丢包时，Probe Engine 按该 IP 的所属分类分别生成告警事件，不重复发送网络探测报文。
-9. 窗口结束后分别计算各唯一目标三种协议的丢包率和成功响应平均延迟，再按目标的所属分类将同一份统计结果投影到对应 `probe_mode`，并以 `device_id + probe_mode + ip_version + source_ip` 分组写入 `targets` 数组后上报。每个可用源 IP 每个窗口分别为 `cross_isp` 和 `cross_province` 生成一份上报。
+8. 各 Driver 按协议语义匹配响应并生成统一结果；单次探测判定为丢包时仅累计到当前逻辑目标统计，不立即发起告警请求。
+9. 窗口结束后分别计算各唯一目标三种协议的丢包率和成功响应平均延迟，再按目标的所属分类将同一份统计结果投影到对应 `probe_mode`，并以 `device_id + probe_mode + ip_version + source_ip` 分组写入 `targets` 数组后上报。每个可用源 IP 每个窗口分别为 `cross_isp` 和 `cross_province` 生成一份结果上报；发生丢包的目标按 IP 版本、分类和协议生成分钟告警，所有分钟告警通过单个批次请求上报。
 
 ### 4.5 临时 IP 按需查询
 
@@ -241,7 +241,7 @@ flowchart TD
 
 1. Agent 使用 `device_id` 长轮询本设备任务；轮询通过设备身份校验后，中央服务刷新 `devices.last_seen_at`。无任务或 `on_demand_status = 0` 时返回空任务，Agent 仍须继续轮询。中央服务以 `id + probe_device_id + status = 1` 为条件将节点任务原子更新为执行中并返回任务；更新失败表示任务已被其他请求获取。节点任务一旦进入执行中便不再重新下发。Agent 获取任务后为其创建独立 goroutine 和 Context，并立即继续轮询，同一节点可以并发执行来自不同执行记录的节点任务。
 2. Agent 校验固定参数后并行执行 ICMP、TCP 80 和 UDP 33434，每个协议 10 次。发送时刻为 0ms 至 900ms、间隔 100ms，单次超时 300ms，最晚等待到约 1.2 秒。
-3. Agent 按协议计算整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 后一次性幂等上报。同一节点的两个分类共享结果；按需探测不产生单次丢包告警，也不受 `users.alert_type` 控制。
+3. Agent 按协议计算整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 后一次性幂等上报。同一节点的两个分类共享结果；按需探测不产生分钟聚合丢包告警，也不受 `users.alert_type` 控制。
 
 #### 4.5.3 聚合与返回
 
@@ -404,24 +404,28 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 
 中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其 `device_related_id`，并校验源目标均已关联设备且不是同一设备、两者 `ip_dict.ip_version` 均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，相同幂等键的重试通过比较三张状态表中的已有结果处理。
 
-### 6.2 单次丢包告警
+### 6.2 分钟聚合丢包告警
 
-任一单次探测未满足对应协议的成功条件时，Agent 立即按目标的所属分类分别上报告警事件，不等待窗口结束，也不设置阈值或重复告警抑制。同一 IP 同时属于异网和跨省时，一次实际探测丢包分别生成一条 `cross_isp` 和一条 `cross_province` 告警事件，但不得重复执行网络探测。TCP connection refused 仍按成功处理，不触发告警。
+任一协议在自然分钟内至少一次探测未满足成功条件时，Agent 在窗口结束后按目标的所属分类分别生成分钟告警。同一 IP 同时属于异网和跨省时，分别生成一条 `cross_isp` 和一条 `cross_province` 告警，但不得重复执行网络探测；同一窗口、目标、协议和分类无论丢包多少次都只生成一条事件。TCP connection refused 仍按成功处理，不触发告警。当前窗口的全部事件封装在一个 `alerts` 数组中一次上报；没有丢包时不发起告警请求。
 
 ```json
 {
-  "event_id": "018f6c2e-7c45-7a9b-9ca1-2bd56f5d9310",
-  "device_id": "source-device-id",
-  "probe_mode": "cross_isp",
-  "ip_version": 4,
-  "source_ip": "198.51.100.10",
-  "target_ip": "203.0.113.20",
-  "protocol_type": "icmp",
-  "unix_timestamp": 1785542412
+  "alerts": [
+    {
+      "event_id": "018f6c2e-7c45-7a9b-9ca1-2bd56f5d9310",
+      "device_id": "source-device-id",
+      "probe_mode": "cross_isp",
+      "ip_version": 4,
+      "source_ip": "198.51.100.10",
+      "target_ip": "203.0.113.20",
+      "protocol_type": "icmp",
+      "unix_timestamp": 1785542460
+    }
+  ]
 }
 ```
 
-`event_id` 作为告警幂等键；中央服务校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其设备归属，并校验源目标均已关联设备且不是同一设备、IP 版本均与 `ip_version` 一致后，将事件写入 `alert_events`。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
+`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻；中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其设备归属，并校验源目标均已关联设备且不是同一设备、IP 版本均与 `ip_version` 一致后，将整个批次写入 `alert_events`。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
 
 ### 6.3 临时 IP 按需结果上报
 
@@ -549,7 +553,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 
 ### 7.7 `alert_events`
 
-告警事件按每次单次丢包保存，一条记录对应一次未满足协议成功条件的探测。
+告警事件按自然分钟、源地址、目标地址、协议和分类聚合保存；一个聚合维度在同一窗口内最多保存一条记录。
 
 | 字段              | 数据类型        | 键                   | 说明                                           |
 | ----------------- | --------------- | -------------------- | ---------------------------------------------- |
@@ -558,7 +562,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键一次�
 | `target_ip_id`  | `INT`         | `FK → ip_dict.id` | 发生丢包的目标公网 IP 记录                     |
 | `protocol_type` | `INT`         | `CHECK`            | 协议编码：`1`=ICMP、`2`=TCP、`3`=UDP     |
 | `probe_mode`    | `INT`         | `CHECK`            | 目标分类编码：`1`=异网、`2`=跨省           |
-| `occurred_at`   | `INT64`       | -                    | 告警发生时间，Unix 时间戳，单位秒              |
+| `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
 | `message`       | `TEXT`        | -                    | 需要微信通知时生成的告警消息正文；未通知时为空 |
 
 中央服务根据告警中的 `device_id` 和 `source_ip` 查询归属匹配的 `ip_dict.id` 并写入 `source_ip_id`，根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 及其 `device_related_id` 并写入 `target_ip_id`，同时校验源目标均已关联设备且不是同一设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件分类符合源设备所属用户的 `alert_type` 且用户仍关注服务号时，中央服务生成并持久化 `message`；不符合时保存空值。
@@ -655,7 +659,7 @@ Agent 编译为单个 Linux 二进制文件并部署到用户服务器，运行�
 | -------- | --------------------------------------------------------------------------------------------------------- |
 | 第一阶段 | 基础服务与设备绑定：FastAPI、数据库迁移、微信回调、二维码绑定、设备身份及公网 IP 属性管理                 |
 | 第二阶段 | 身份校验与目标发现：salt 签发与校验、IP 公开状态、ISP/省份识别、异网与跨省目标查询                        |
-| 第三阶段 | 网络探测闭环：IPv4/IPv6 四组目标自动查询、同地址族分钟调度、ICMP/TCP/UDP 并发探测、结果上报和单次丢包告警 |
+| 第三阶段 | 网络探测闭环：IPv4/IPv6 四组目标自动查询、同地址族分钟调度、ICMP/TCP/UDP 并发探测、结果上报和分钟聚合丢包告警 |
 | 第四阶段 | 生产可靠性：双栈异常处理、UDP 直连探测、Local Buffer、幂等重试、`systemd` 和可观测性                    |
 | 第五阶段 | 多设备管理：公众号设备列表、用户告警类型设置、控制任务轮询心跳、在线/离线判定、公开状态管理和城市属性     |
 | 第六阶段 | 临时 IP 按需查询：公网地址校验、在线节点筛选、并发查询合并、任务轮询、1 秒快速探测、结果聚合和访问控制    |

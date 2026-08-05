@@ -105,7 +105,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 
 ### 7.7 `alert_events`
 
-告警事件按每次单次丢包保存，一条记录对应一次未满足协议成功条件的探测。
+告警事件按自然分钟、源地址、目标地址、协议和分类聚合保存；一个聚合维度在同一窗口内最多保存一条记录。
 
 | 字段              | 数据类型        | 键                   | 说明                                           |
 | ----------------- | --------------- | -------------------- | ---------------------------------------------- |
@@ -114,7 +114,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `target_ip_id`  | `INT`         | `FK → ip_dict.id` | 发生丢包的目标公网 IP 记录                     |
 | `protocol_type` | `INT`         | `CHECK`            | 协议编码：`1`=ICMP、`2`=TCP、`3`=UDP     |
 | `probe_mode`    | `INT`         | `CHECK`            | 目标分类编码：`1`=异网、`2`=跨省           |
-| `occurred_at`   | `INT64`       | -                    | 告警发生时间，Unix 时间戳，单位秒              |
+| `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
 | `message`       | `TEXT`        | -                    | 需要微信通知时生成的告警消息正文；未通知时为空 |
 
 中央服务根据告警中的 `device_id` 和 `source_ip` 查询归属匹配的 `ip_dict.id` 并写入 `source_ip_id`，根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 及其 `device_related_id` 并写入 `target_ip_id`，同时校验源目标均已关联设备且不是同一设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件分类符合源设备所属用户的 `alert_type` 且用户仍关注服务号时，中央服务生成并持久化 `message`；不符合时保存空值。

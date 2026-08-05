@@ -40,26 +40,31 @@ type icmpDriver struct {
 	pending    map[uint16]pendingICMP
 }
 
-// newICMPDriver 创建并启动指定源地址的共享 ICMP Driver。
+// newICMPDriver 创建并启动指定 IP 版本的共享 ICMP Driver。
 //
 // 参数:
-//   - source: 本机公网源地址。
+//   - ipVersion: IP 版本，仅支持 4 或 6。
 //
-// 返回值: 可并发探测目标的 Driver；socket 创建失败时返回错误。
-func newICMPDriver(source netip.Addr) (*icmpDriver, error) {
+// 返回值: 可并发探测目标的 Driver；版本无效或 socket 创建失败时返回错误。
+func newICMPDriver(ipVersion int) (*icmpDriver, error) {
+	if ipVersion != 4 && ipVersion != 6 {
+		return nil, fmt.Errorf("不支持的 ICMP IP 版本: %d", ipVersion)
+	}
 	network := "ip4:icmp"
+	listenAddress := "0.0.0.0"
 	protocol := 1
 	echoType := icmp.Type(ipv4.ICMPTypeEcho)
 	replyType := icmp.Type(ipv4.ICMPTypeEchoReply)
-	if source.Is6() {
+	if ipVersion == 6 {
 		network = "ip6:ipv6-icmp"
+		listenAddress = "::"
 		protocol = 58
 		echoType = ipv6.ICMPTypeEchoRequest
 		replyType = ipv6.ICMPTypeEchoReply
 	}
-	connection, err := icmp.ListenPacket(network, source.String())
+	connection, err := icmp.ListenPacket(network, listenAddress)
 	if err != nil {
-		return nil, fmt.Errorf("创建 IPv%d ICMP socket 失败: %w", sourceVersion(source), err)
+		return nil, fmt.Errorf("创建 IPv%d ICMP socket 失败: %w", ipVersion, err)
 	}
 	driver := &icmpDriver{
 		connection: connection,
@@ -71,19 +76,6 @@ func newICMPDriver(source netip.Addr) (*icmpDriver, error) {
 	}
 	go driver.receive()
 	return driver, nil
-}
-
-// sourceVersion 返回地址对应的 IP 版本编号。
-//
-// 参数:
-//   - source: IPv4 或 IPv6 地址。
-//
-// 返回值: IPv4 返回 4，IPv6 返回 6。
-func sourceVersion(source netip.Addr) int {
-	if source.Is4() {
-		return 4
-	}
-	return 6
 }
 
 // Close 关闭共享 ICMP socket。
@@ -218,26 +210,22 @@ func (driver *icmpDriver) deliver(sequence uint16, peer string) {
 	}
 }
 
-// probeTCP 使用指定源地址探测目标 TCP 80 端口。
+// probeTCP 使用系统路由选择的本地地址探测目标 TCP 80 端口。
 //
 // 参数:
 //   - ctx: 控制单次连接超时或取消的 Context。
-//   - source: 本机公网源地址。
 //   - target: 同版本目标公网地址。
 //
 // 返回值: 连接成功或 connection refused 的 RTT；其他错误表示丢包。
 func probeTCP(
 	ctx context.Context,
-	source netip.Addr,
 	target netip.Addr,
 ) (time.Duration, error) {
 	network := "tcp4"
-	if source.Is6() {
+	if target.Is6() {
 		network = "tcp6"
 	}
-	dialer := net.Dialer{
-		LocalAddr: &net.TCPAddr{IP: net.IP(source.AsSlice())},
-	}
+	dialer := net.Dialer{}
 	startedAt := time.Now()
 	connection, err := dialer.DialContext(
 		ctx,
@@ -255,26 +243,24 @@ func probeTCP(
 	return 0, err
 }
 
-// probeUDP 使用指定源地址发送 UDP datagram 并等待回复或端口不可达。
+// probeUDP 使用系统路由选择的本地地址发送 UDP datagram 并等待回复或端口不可达。
 //
 // 参数:
 //   - ctx: 控制单次读写超时或取消的 Context。
-//   - source: 本机公网源地址。
 //   - target: 同版本目标公网地址。
 //
 // 返回值: 收到 UDP 回复或 connection refused 的 RTT；其他错误表示丢包。
 func probeUDP(
 	ctx context.Context,
-	source netip.Addr,
 	target netip.Addr,
 ) (time.Duration, error) {
 	network := "udp4"
-	if source.Is6() {
+	if target.Is6() {
 		network = "udp6"
 	}
 	connection, err := net.DialUDP(
 		network,
-		&net.UDPAddr{IP: net.IP(source.AsSlice())},
+		nil,
 		&net.UDPAddr{IP: net.IP(target.AsSlice()), Port: udpPort},
 	)
 	if err != nil {

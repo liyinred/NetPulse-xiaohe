@@ -16,8 +16,6 @@ import (
 const (
 	probeCount   = 100
 	windowLength = time.Minute
-	alertWorkers = 4
-	alertQueue   = 10000
 )
 
 var protocolNames = []string{"icmp", "tcp", "udp"}
@@ -29,7 +27,6 @@ type Engine struct {
 	sourceIPv4 netip.Addr
 	sourceIPv6 *netip.Addr
 	output     io.Writer
-	alerts     chan client.ProbeAlertRequest
 }
 
 type protocolStats struct {
@@ -75,7 +72,6 @@ func NewEngine(
 		sourceIPv4: sourceIPv4,
 		sourceIPv6: sourceIPv6,
 		output:     output,
-		alerts:     make(chan client.ProbeAlertRequest, alertQueue),
 	}
 }
 
@@ -95,10 +91,6 @@ func (engine *Engine) Run(ctx context.Context) error {
 			_ = driver.Close()
 		}
 	}()
-	for worker := 0; worker < alertWorkers; worker++ {
-		go engine.runAlertWorker(ctx)
-	}
-
 	snapshot, err := engine.fetchTargets(ctx)
 	if err != nil {
 		return err
@@ -134,6 +126,7 @@ func (engine *Engine) Run(ctx context.Context) error {
 			return err
 		}
 		engine.submitWindowResults(ctx, windowEnd.Unix(), results)
+		engine.submitWindowAlerts(ctx, windowEnd.Unix(), results)
 		select {
 		case snapshot = <-refreshChannel:
 		case refreshErr := <-refreshError:
@@ -145,19 +138,19 @@ func (engine *Engine) Run(ctx context.Context) error {
 	}
 }
 
-// openICMPDrivers 为每个可用源地址创建共享 ICMP Driver。
+// openICMPDrivers 为每个可用 IP 版本创建共享 ICMP Driver。
 //
 // 参数: 无。
 // 返回值: 按 IP 版本索引的 Driver；任一 socket 初始化失败时返回错误。
 func (engine *Engine) openICMPDrivers() (map[int]*icmpDriver, error) {
 	drivers := make(map[int]*icmpDriver)
-	ipv4Driver, err := newICMPDriver(engine.sourceIPv4)
+	ipv4Driver, err := newICMPDriver(4)
 	if err != nil {
 		return nil, err
 	}
 	drivers[4] = ipv4Driver
 	if engine.sourceIPv6 != nil {
-		ipv6Driver, err := newICMPDriver(*engine.sourceIPv6)
+		ipv6Driver, err := newICMPDriver(6)
 		if err != nil {
 			_ = ipv4Driver.Close()
 			return nil, err
@@ -227,6 +220,9 @@ func (engine *Engine) runWindow(
 		}()
 	}
 	waitGroup.Wait()
+	if err := waitUntil(ctx, windowEnd); err != nil {
+		return nil, err
+	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -345,7 +341,6 @@ func (engine *Engine) runLogicalTarget(
 		rtt, err := probeOnce(
 			attemptContext,
 			source.driver,
-			source.source,
 			target.Address,
 			protocol,
 		)
@@ -356,7 +351,6 @@ func (engine *Engine) runLogicalTarget(
 			stats.rttTotal += rtt
 			continue
 		}
-		engine.queueAlerts(ctx, source, target, protocol)
 	}
 	return stats
 }
@@ -365,8 +359,7 @@ func (engine *Engine) runLogicalTarget(
 //
 // 参数:
 //   - ctx: 控制 300ms 超时或取消的 Context。
-//   - icmpDriver: 当前源地址的共享 ICMP Driver。
-//   - source: 本机公网源地址。
+//   - icmpDriver: 当前 IP 版本的共享 ICMP Driver。
 //   - target: 同版本目标地址。
 //   - protocol: icmp、tcp 或 udp。
 //
@@ -374,7 +367,6 @@ func (engine *Engine) runLogicalTarget(
 func probeOnce(
 	ctx context.Context,
 	icmpDriver *icmpDriver,
-	source netip.Addr,
 	target netip.Addr,
 	protocol string,
 ) (time.Duration, error) {
@@ -382,65 +374,83 @@ func probeOnce(
 	case "icmp":
 		return icmpDriver.Probe(ctx, target)
 	case "tcp":
-		return probeTCP(ctx, source, target)
+		return probeTCP(ctx, target)
 	case "udp":
-		return probeUDP(ctx, source, target)
+		return probeUDP(ctx, target)
 	default:
 		return 0, fmt.Errorf("不支持的探测协议: %s", protocol)
 	}
 }
 
-// queueAlerts 按目标所属分类分别排队单次丢包告警。
+// buildWindowAlerts 按目标、协议和分类生成自然分钟聚合告警。
 //
 // 参数:
-//   - ctx: 控制排队取消的 Context。
-//   - source: 当前源地址信息。
-//   - target: 丢包目标及所属分类。
-//   - protocol: 发生丢包的协议。
+//   - deviceID: Agent 设备标识。
+//   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
+//   - results: 当前自然分钟的探测统计。
 //
-// 返回值: 无。
-func (engine *Engine) queueAlerts(
-	ctx context.Context,
-	source sourceWindow,
-	target Target,
-	protocol string,
-) {
-	for _, mode := range target.Modes {
-		alert := client.ProbeAlertRequest{
-			EventID:       generateEventID(),
-			DeviceID:      engine.deviceID,
-			ProbeMode:     mode,
-			IPVersion:     source.version,
-			SourceIP:      source.source.String(),
-			TargetIP:      target.Address.String(),
-			ProtocolType:  protocol,
-			UnixTimestamp: time.Now().Unix(),
-		}
-		select {
-		case engine.alerts <- alert:
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// runAlertWorker 持续消费告警队列并提交中央服务。
-//
-// 参数:
-//   - ctx: 控制 Worker 退出和 HTTP 请求取消的 Context。
-//
-// 返回值: 无。
-func (engine *Engine) runAlertWorker(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case alert := <-engine.alerts:
-			if err := engine.backend.SubmitProbeAlert(ctx, alert); err != nil {
-				fmt.Fprintf(engine.output, "丢包告警上报失败: %v\n", err)
+// 返回值: 每个发生丢包的聚合维度对应一条告警。
+func buildWindowAlerts(
+	deviceID string,
+	windowEnd int64,
+	results []sourceWindowResult,
+) []client.ProbeAlertRequest {
+	alerts := make([]client.ProbeAlertRequest, 0)
+	for _, result := range results {
+		for _, targetStats := range result.stats {
+			protocols := []struct {
+				name  string
+				stats protocolStats
+			}{
+				{name: "icmp", stats: targetStats.icmp},
+				{name: "tcp", stats: targetStats.tcp},
+				{name: "udp", stats: targetStats.udp},
+			}
+			for _, protocol := range protocols {
+				if protocol.stats.attempted == protocol.stats.succeeded {
+					continue
+				}
+				for _, mode := range targetStats.target.Modes {
+					alerts = append(alerts, client.ProbeAlertRequest{
+						EventID:       generateEventID(),
+						DeviceID:      deviceID,
+						ProbeMode:     mode,
+						IPVersion:     result.version,
+						SourceIP:      result.source.String(),
+						TargetIP:      targetStats.target.Address.String(),
+						ProtocolType:  protocol.name,
+						UnixTimestamp: windowEnd,
+					})
+				}
 			}
 		}
 	}
+	return alerts
+}
+
+// submitWindowAlerts 异步上报一个自然分钟内的聚合丢包告警。
+//
+// 参数:
+//   - ctx: 控制 HTTP 请求取消的 Context。
+//   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
+//   - results: 当前自然分钟的探测统计。
+//
+// 返回值: 无；没有丢包时不发起请求。
+func (engine *Engine) submitWindowAlerts(
+	ctx context.Context,
+	windowEnd int64,
+	results []sourceWindowResult,
+) {
+	alerts := buildWindowAlerts(engine.deviceID, windowEnd, results)
+	if len(alerts) == 0 {
+		return
+	}
+	request := client.ProbeAlertsRequest{Alerts: alerts}
+	go func() {
+		if err := engine.backend.SubmitProbeAlerts(ctx, request); err != nil {
+			fmt.Fprintf(engine.output, "分钟聚合告警上报失败: %v\n", err)
+		}
+	}()
 }
 
 // submitWindowResults 将统计按目标分类投影并异步上报。

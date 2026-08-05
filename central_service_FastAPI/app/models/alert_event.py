@@ -7,7 +7,7 @@ from app.db.base import Base
 
 
 class AlertEvent(Base):
-    """保存单次探测丢包产生的告警事件。"""
+    """保存自然分钟内聚合产生的探测丢包告警事件。"""
 
     __tablename__ = "alert_events"
     __table_args__ = (

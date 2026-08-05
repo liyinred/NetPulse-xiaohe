@@ -55,7 +55,7 @@ type ProbeResultRequest struct {
 	Targets       []TargetResult `json:"targets"`
 }
 
-// ProbeAlertRequest 保存一次探测丢包事件。
+// ProbeAlertRequest 保存一个目标和协议的分钟丢包告警。
 type ProbeAlertRequest struct {
 	EventID       string `json:"event_id"`
 	DeviceID      string `json:"device_id"`
@@ -65,6 +65,11 @@ type ProbeAlertRequest struct {
 	TargetIP      string `json:"target_ip"`
 	ProtocolType  string `json:"protocol_type"`
 	UnixTimestamp int64  `json:"unix_timestamp"`
+}
+
+// ProbeAlertsRequest 保存一个自然分钟内的聚合丢包告警。
+type ProbeAlertsRequest struct {
+	Alerts []ProbeAlertRequest `json:"alerts"`
 }
 
 type probeAcceptedResponse struct {
@@ -125,18 +130,18 @@ func (backend *Backend) SubmitProbeResult(
 	return backend.submitProbePayload(ctx, "/probes/results", result)
 }
 
-// SubmitProbeAlert 上报一次探测丢包事件。
+// SubmitProbeAlerts 上报一个自然分钟内的聚合丢包告警。
 //
 // 参数:
 //   - ctx: 控制请求取消的 Context。
-//   - alert: 单次丢包事件。
+//   - alerts: 当前自然分钟的聚合丢包告警。
 //
 // 返回值: 中央服务接受请求时返回 nil，否则返回错误。
-func (backend *Backend) SubmitProbeAlert(
+func (backend *Backend) SubmitProbeAlerts(
 	ctx context.Context,
-	alert ProbeAlertRequest,
+	alerts ProbeAlertsRequest,
 ) error {
-	return backend.submitProbePayload(ctx, "/probes/alerts", alert)
+	return backend.submitProbePayload(ctx, "/probes/alerts", alerts)
 }
 
 // submitProbePayload 提交探测 JSON 并校验接受标志。

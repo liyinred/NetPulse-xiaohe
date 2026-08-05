@@ -20,7 +20,7 @@ from app.models.probe_state import (
     UDPProbeState,
 )
 from app.schemas.probe import (
-    ProbeAlertRequest,
+    ProbeAlertsRequest,
     ProbeResultRequest,
     ProbeTarget,
     ProbeTargetsRequest,
@@ -381,43 +381,44 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                 )
 
 
-def save_probe_alert(request: ProbeAlertRequest) -> None:
-    """校验并幂等保存单次丢包告警事件。
+def save_probe_alerts(request: ProbeAlertsRequest) -> None:
+    """校验并幂等保存自然分钟聚合丢包告警。
 
     参数:
-        request: Agent 上报的丢包事件。
+        request: Agent 上报的自然分钟聚合丢包告警。
     返回:
-        无返回值；event_id 已存在时视为成功。
+        无返回值；批次中已存在的 event_id 视为成功。
     """
     with SessionLocal.begin() as session:
-        if session.get(AlertEvent, request.event_id) is not None:
-            return
-        device, source = _get_owned_source(
-            session,
-            request.device_id,
-            request.source_ip,
-            request.ip_version,
-        )
-        target = _get_valid_target(
-            session,
-            device,
-            source,
-            request.target_ip,
-            request.ip_version,
-            request.probe_mode,
-        )
-        message = (
-            f"{request.probe_mode} {request.protocol_type} 丢包: "
-            f"{request.source_ip} -> {request.target_ip}"
-        )
-        session.add(
-            AlertEvent(
-                event_id=request.event_id,
-                source_ip_id=source.id,
-                target_ip_id=target.id,
-                protocol_type=PROTOCOL_CODES[request.protocol_type],
-                probe_mode=PROBE_MODE_CODES[request.probe_mode],
-                occurred_at=request.unix_timestamp,
-                message=message,
+        for alert in request.alerts:
+            if session.get(AlertEvent, alert.event_id) is not None:
+                continue
+            device, source = _get_owned_source(
+                session,
+                alert.device_id,
+                alert.source_ip,
+                alert.ip_version,
             )
-        )
+            target = _get_valid_target(
+                session,
+                device,
+                source,
+                alert.target_ip,
+                alert.ip_version,
+                alert.probe_mode,
+            )
+            message = (
+                f"{alert.probe_mode} {alert.protocol_type} 分钟丢包: "
+                f"{alert.source_ip} -> {alert.target_ip}"
+            )
+            session.add(
+                AlertEvent(
+                    event_id=alert.event_id,
+                    source_ip_id=source.id,
+                    target_ip_id=target.id,
+                    protocol_type=PROTOCOL_CODES[alert.protocol_type],
+                    probe_mode=PROBE_MODE_CODES[alert.probe_mode],
+                    occurred_at=alert.unix_timestamp,
+                    message=message,
+                )
+            )

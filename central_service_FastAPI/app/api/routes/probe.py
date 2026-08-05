@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.probe import (
     ProbeAcceptedResponse,
-    ProbeAlertRequest,
+    ProbeAlertsRequest,
     ProbeResultRequest,
     ProbeTargetsRequest,
     ProbeTargetsResponse,
@@ -12,7 +12,7 @@ from app.schemas.probe import (
 from app.services.network import IPLookupError
 from app.services.probe import (
     discover_probe_targets,
-    save_probe_alert,
+    save_probe_alerts,
     save_probe_result,
 )
 
@@ -62,18 +62,18 @@ async def receive_probe_result(
 
 
 @router.post("/alerts", response_model=ProbeAcceptedResponse)
-async def receive_probe_alert(
-    request: ProbeAlertRequest,
+async def receive_probe_alerts(
+    request: ProbeAlertsRequest,
 ) -> ProbeAcceptedResponse:
-    """接收并持久化单次丢包告警。
+    """接收并持久化自然分钟聚合丢包告警。
 
     参数:
-        request: Agent 生成的单次丢包事件。
+        request: Agent 生成的自然分钟聚合丢包告警。
     返回:
         接收成功标志。
     """
     try:
-        save_probe_alert(request)
+        save_probe_alerts(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ProbeAcceptedResponse()

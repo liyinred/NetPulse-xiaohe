@@ -65,7 +65,7 @@ class ProbeResultRequest(BaseModel):
 
 
 class ProbeAlertRequest(BaseModel):
-    """定义单次丢包告警事件。"""
+    """定义一个目标和协议的分钟丢包告警。"""
 
     event_id: str = Field(min_length=36, max_length=36)
     device_id: str = Field(min_length=1, max_length=64)
@@ -75,6 +75,12 @@ class ProbeAlertRequest(BaseModel):
     target_ip: IPv4Address | IPv6Address
     protocol_type: ProtocolType
     unix_timestamp: int = Field(gt=0)
+
+
+class ProbeAlertsRequest(BaseModel):
+    """定义一个自然分钟内的聚合丢包告警。"""
+
+    alerts: list[ProbeAlertRequest] = Field(min_length=1)
 
 
 class ProbeAcceptedResponse(BaseModel):
