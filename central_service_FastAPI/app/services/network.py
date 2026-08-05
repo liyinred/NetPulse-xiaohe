@@ -1,7 +1,12 @@
-"""公网 IPv4 归属信息查询服务。"""
+"""公网 IPv4/IPv6 归属信息查询服务。"""
 
 from dataclasses import dataclass
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, ip_address
+from ipaddress import (
+    IPv4Address,
+    IPv6Address,
+    ip_address,
+    ip_network,
+)
 from typing import Any
 
 import httpx
@@ -57,9 +62,9 @@ class IPLookupError(RuntimeError):
 
 @dataclass(frozen=True)
 class NetworkInfo:
-    """保存公网 IPv4 及归一化后的省份、城市、运营商信息。"""
+    """保存公网 IP 及归一化后的省份、城市、运营商信息。"""
 
-    public_ipv4: IPv4Address
+    public_ip: IPv4Address | IPv6Address
     isp: int
     province: int
     isp_name: str
@@ -95,15 +100,18 @@ def parse_public_address(
     return public_ip
 
 
-async def lookup_network(public_ipv4: IPv4Address) -> NetworkInfo:
-    """查询公网 IPv4 所在网段的省份、城市和运营商。
+async def lookup_network(
+    public_ip: IPv4Address | IPv6Address,
+) -> NetworkInfo:
+    """查询公网 IP 所在网段的省份、城市和运营商。
 
     参数:
-        public_ipv4: 中央服务从连接中识别的公网 IPv4。
+        public_ip: 要识别归属信息的公网 IPv4 或 IPv6。
     返回:
-        包含公网 IPv4、省份、城市、运营商展示名称和归一化编码的网络信息。
+        包含公网 IP、省份、城市、运营商展示名称和归一化编码的网络信息。
     """
-    cidr = IPv4Network(f"{public_ipv4}/24", strict=False)
+    prefix_length = 24 if public_ip.version == 4 else 48
+    cidr = ip_network(f"{public_ip}/{prefix_length}", strict=False)
     try:
         async with httpx.AsyncClient(timeout=IP_LOOKUP_TIMEOUT_SECONDS) as client:
             response = await client.post(
@@ -118,7 +126,7 @@ async def lookup_network(public_ipv4: IPv4Address) -> NetworkInfo:
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), str):
         raise IPLookupError("IP 归属查询响应缺少 data 字段")
     province_name, city_name, isp_name = parse_ip_lookup_data(
-        payload["data"], public_ipv4
+        payload["data"], public_ip
     )
     province_name = validate_network_value(province_name, "省份")
     city_name = validate_network_value(city_name, "城市")
@@ -127,7 +135,7 @@ async def lookup_network(public_ipv4: IPv4Address) -> NetworkInfo:
     if province == 1:
         raise IPLookupError("IP 归属查询未返回可识别的省份")
     return NetworkInfo(
-        public_ipv4=public_ipv4,
+        public_ip=public_ip,
         isp=normalize_isp(isp_name),
         province=province,
         isp_name=isp_name,
@@ -138,13 +146,13 @@ async def lookup_network(public_ipv4: IPv4Address) -> NetworkInfo:
 
 def parse_ip_lookup_data(
     data: str,
-    public_ipv4: IPv4Address,
+    public_ip: IPv4Address | IPv6Address,
 ) -> tuple[str, str, str]:
-    """解析接口数据并查找覆盖指定公网 IPv4 的记录。
+    """解析接口数据并查找覆盖指定公网 IP 的记录。
 
     参数:
         data: 接口返回的分号、逗号分隔数据。
-        public_ipv4: 用于匹配网段记录的公网 IPv4。
+        public_ip: 用于匹配网段记录的公网 IPv4 或 IPv6。
     返回:
         省份名称、城市名称和运营商名称。
     """
@@ -153,18 +161,22 @@ def parse_ip_lookup_data(
         if len(fields) != 5:
             continue
         try:
-            start_ip = IPv4Address(fields[0])
-            end_ip = IPv4Address(fields[1])
+            start_ip = ip_address(fields[0])
+            end_ip = ip_address(fields[1])
         except ValueError:
             continue
-        if start_ip <= public_ipv4 <= end_ip:
+        if (
+            start_ip.version == public_ip.version
+            and end_ip.version == public_ip.version
+            and start_ip <= public_ip <= end_ip
+        ):
             province_name, separator, city_name = fields[2].partition("-")
             return (
                 province_name.strip(),
                 city_name.strip() if separator else "",
                 fields[3],
             )
-    raise IPLookupError("IP 归属查询响应未包含客户端地址")
+    raise IPLookupError("IP 归属查询响应未包含目标地址")
 
 
 def validate_network_value(value: str, field_name: str) -> str:

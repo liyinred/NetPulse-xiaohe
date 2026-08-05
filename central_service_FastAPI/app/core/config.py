@@ -46,3 +46,8 @@ DATABASE_URL = URL.create(
     database=MYSQL_DATABASE,
     query={"charset": "utf8mb4"},
 )
+
+PROBE_IP_MAX_AGE_SECONDS = int(os.getenv("PROBE_IP_MAX_AGE_SECONDS", "300"))
+PROBE_DEVICE_OFFLINE_SECONDS = int(
+    os.getenv("PROBE_DEVICE_OFFLINE_SECONDS", "120")
+)

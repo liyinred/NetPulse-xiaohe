@@ -71,9 +71,11 @@ def build_device_network_info(
         可直接用于绑定状态响应的设备网络信息。
     """
     network_info = binding_result.network_info
+    if not isinstance(network_info.public_ip, IPv4Address):
+        raise ValueError("设备绑定网络信息缺少 IPv4 地址")
     return DeviceNetworkInfo(
         device_id=binding_result.device_id,
-        public_ipv4=network_info.public_ipv4,
+        public_ipv4=network_info.public_ip,
         public_ipv6=binding_result.source_ipv6,
         isp=network_info.isp,
         province=network_info.province,

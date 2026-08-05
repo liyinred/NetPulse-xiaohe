@@ -325,7 +325,7 @@ TCP 固定探测端口 80。TCP connect 成功和 connection refused 均证明�
 
 ### 5.2 默认参数
 
-持续探测参数如下：
+#### 5.2.1 持续探测参数
 
 | 参数                 | 默认值                |
 | -------------------- | --------------------- |
@@ -336,7 +336,7 @@ TCP 固定探测端口 80。TCP connect 成功和 connection refused 均证明�
 | 探测目标分类         | 自动执行异网和跨省    |
 | 探测协议             | 固定 ICMP、TCP、UDP   |
 
-临时 IP 按需探测参数如下：
+#### 5.2.2 临时 IP 按需探测参数
 
 | 参数                     | 默认值                         |
 | ------------------------ | ------------------------------ |
@@ -402,7 +402,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其 `device_related_id`，并校验源目标均已关联设备且不是同一设备、两者 `ip_dict.ip_version` 均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`。空 `targets` 上报同样记录幂等状态，但不写入协议状态表。
+中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录及其 `device_related_id`，并校验源目标均已关联设备且不是同一设备、两者 `ip_dict.ip_version` 均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，相同幂等键的重试通过比较三张状态表中的已有结果处理。
 
 ### 6.2 单次丢包告警
 

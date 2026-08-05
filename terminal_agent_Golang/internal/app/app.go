@@ -2,15 +2,18 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
 	"net/netip"
+	"strings"
 	"time"
 
 	"netpulse/terminal-agent/internal/client"
 	"netpulse/terminal-agent/internal/config"
+	"netpulse/terminal-agent/internal/probe"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -22,14 +25,15 @@ const (
 	ipv4MaxAttempts = 3
 )
 
-// Run 持久化设备标识，并等待中央服务通过二维码轮询完成设备绑定。
+// Run 完成设备绑定，并按用户确认启动持续探测。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
+//   - input: 接收持续探测确认输入的 Reader。
 //   - output: 输出二维码和运行状态的 Writer。
 //
 // 返回值: 流程成功时返回 nil，否则返回具体错误。
-func Run(ctx context.Context, output io.Writer) error {
+func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	configPath, err := config.ExecutablePath()
 	if err != nil {
 		return err
@@ -76,33 +80,77 @@ func Run(ctx context.Context, output io.Writer) error {
 	if bindingInfo != nil {
 		fmt.Fprintln(output, "设备已绑定，中央服务已刷新当前公网地址。")
 		printBindingInfo(output, *bindingInfo)
-		return nil
+	} else {
+		qrCode, requestErr := backend.RequestQRCode(ctx)
+		if requestErr != nil {
+			return requestErr
+		}
+		if printErr := printQRCode(output, qrCode.URL); printErr != nil {
+			return printErr
+		}
+
+		fmt.Fprintln(output, "请使用微信扫描二维码完成服务号关注，正在等待确认...")
+		bindingInfoValue, waitErr := backend.WaitForLogin(
+			ctx,
+			qrCode.SceneString,
+			deviceID,
+			sourceIPv4,
+			sourceIPv6,
+			time.Duration(qrCode.ExpireSeconds)*time.Second,
+		)
+		if waitErr != nil {
+			return fmt.Errorf("设备绑定更新失败: %w", waitErr)
+		}
+
+		fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
+		printBindingInfo(output, bindingInfoValue)
 	}
 
-	qrCode, err := backend.RequestQRCode(ctx)
+	confirmed, err := confirmContinuousProbe(input, output)
 	if err != nil {
 		return err
 	}
-	if err := printQRCode(output, qrCode.URL); err != nil {
-		return err
+	if !confirmed {
+		fmt.Fprintln(output, "已取消持续探测。")
+		return nil
 	}
-
-	fmt.Fprintln(output, "请使用微信扫描二维码完成服务号关注，正在等待确认...")
-	bindingInfoValue, err := backend.WaitForLogin(
-		ctx,
-		qrCode.SceneString,
+	fmt.Fprintln(output, "正在获取异网和跨省探测目标...")
+	probeEngine := probe.NewEngine(
+		backend,
 		deviceID,
 		sourceIPv4,
 		sourceIPv6,
-		time.Duration(qrCode.ExpireSeconds)*time.Second,
+		output,
 	)
-	if err != nil {
-		return fmt.Errorf("设备绑定更新失败: %w", err)
-	}
+	return probeEngine.Run(ctx)
+}
 
-	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
-	printBindingInfo(output, bindingInfoValue)
-	return nil
+// confirmContinuousProbe 显示 Y/N 提示并监听用户输入。
+//
+// 参数:
+//   - input: 接收终端输入的 Reader。
+//   - output: 输出提示和格式错误信息的 Writer。
+//
+// 返回值: 输入 Y 时返回 True，输入 N 时返回 False；读取失败时返回错误。
+func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
+	reader := bufio.NewReader(input)
+	for {
+		if _, err := fmt.Fprint(output, "是否进行持续探测(Y/N): "); err != nil {
+			return false, fmt.Errorf("输出持续探测提示失败: %w", err)
+		}
+		answer, err := reader.ReadString('\n')
+		answer = strings.TrimSpace(answer)
+		if strings.EqualFold(answer, "Y") {
+			return true, nil
+		}
+		if strings.EqualFold(answer, "N") {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("读取持续探测确认失败: %w", err)
+		}
+		fmt.Fprintln(output, "请输入 Y 或 N。")
+	}
 }
 
 // printBindingInfo 在终端展示绑定成功后的设备和网络信息。
