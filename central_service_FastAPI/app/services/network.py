@@ -53,6 +53,8 @@ PROVINCE_CODES = {
     "台湾": 34,
     "澳门": 35,
 }
+PROVINCE_NAMES = {code: name for name, code in PROVINCE_CODES.items()}
+ISP_NAMES = {1: "电信", 2: "移动", 3: "联通", 4: "其他运营商"}
 INVALID_NETWORK_VALUES = {"", "-", "n/a", "none", "null", "unknown", "未知"}
 
 
@@ -231,3 +233,20 @@ def normalize_province(province: str) -> int:
     ):
         normalized = normalized.removesuffix(suffix)
     return PROVINCE_CODES.get(normalized, 1)
+
+
+def format_probe_node_name(
+    province: int | None,
+    isp: int | None,
+) -> str:
+    """将 IP 归属编码格式化为探测节点名称。
+
+    参数:
+        province: IP 字典中的省份编码。
+        isp: IP 字典中的运营商编码。
+    返回:
+        采用“省份运营商”格式的节点名称，未知编码使用“未知”。
+    """
+    province_name = PROVINCE_NAMES.get(province, "未知")
+    isp_name = ISP_NAMES.get(isp, "未知")
+    return f"{province_name}{isp_name}"

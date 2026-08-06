@@ -32,7 +32,7 @@
 系统分为中央控制服务和 Linux Agent：
 
 - **中央服务**：负责微信回调、二维码生成、绑定管理、设备管理、用户告警类型设置、持续探测结果与告警事件接收、微信通知，以及临时 IP 校验和归属识别、在线探测节点选择、按需任务合并、任务下发、结果聚合和查询权限控制。
-- **Linux Agent**：负责终端交互、异网与跨省目标查询、按需任务轮询、ICMP、UDP、TCP 探测，以及绑定状态、分钟探测结果、按需结果和丢包告警事件上报。
+- **Linux Agent**：负责终端交互、扫码绑定、异网与跨省目标查询、按需任务轮询、ICMP、UDP、TCP 探测，以及分钟探测结果、按需结果和丢包告警事件上报。
 
 ### 2.2 设备身份
 
@@ -45,7 +45,7 @@
 
 ### 2.3 结果与告警上报
 
-系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束时，按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组后上报；同时按 `ip_version + probe_mode + source_ip + target_ip + protocol_type` 聚合当前窗口的丢包，每个聚合维度最多生成一条告警，所有告警通过一个 `alerts` 数组一次上报。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务保存结果与事件，并根据告警事件中的 `device_id` 查询源设备所属用户的 `alert_type`；仅当该值包含对应告警类型时发送微信消息。
+系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束后，为每个结果或告警 HTTP 请求独立生成 `[0, 10s)` 的随机延迟，以窗口结束时间为基准异步发起上报，避免大量 Agent 在整分钟边界形成请求尖峰。结果按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组；同时按 `ip_version + probe_mode + source_ip + target_ip + protocol_type` 聚合当前窗口的丢包，每个聚合维度最多生成一条告警，所有告警通过一个 `alerts` 数组一次上报。随机延迟不改变请求中的窗口结束时间戳，也不阻塞下一窗口探测。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务保存结果与事件，并根据告警事件中的 `device_id` 查询源设备所属用户的 `alert_type`；仅当该值包含对应告警类型时发送微信消息。
 
 ### 2.4 持续探测与按需探测隔离
 
@@ -110,13 +110,10 @@ flowchart LR
 flowchart TD
     Start["用户启动程序"] --> Config["读取本地配置"]
     Config --> PublicIP["尝试获取当前设备公网 IPv4 和 IPv6"]
-    PublicIP --> Status["使用 device_id 查询设备绑定状态"]
-    Status --> Bound{"已绑定且仍关注服务号？"}
-    Bound -- 否 --> QR["扫码关注服务号"]
+    PublicIP --> QR["扫码完成设备绑定更新"]
     QR --> BindUpdate["绑定设备并更新设备 IP 信息"]
     BindUpdate --> Poll["轮询绑定结果"]
-    Poll --> Bound
-    Bound -- 是 --> Target["查询按分类与 IP 版本分组的目标 IP 列表"]
+    Poll --> Target["查询按分类与 IP 版本分组的目标 IP 列表"]
     Target --> Monitor["等待下一个自然分钟并开始探测"]
     Target -. "公众号用户设置" .-> AlertType["选择接收的告警类型"]
     AlertType -. "微信告警" .-> Monitor
@@ -124,7 +121,7 @@ flowchart TD
 
 流程说明如下：
 
-1. Agent 读取 `device_id` 后分别尝试获取当前设备的公网 IPv4 和 IPv6，并暂存成功获取的地址。公网 IPv4 为启动必需项：获取失败时提示用户并阻塞重试，不进入绑定查询；公网 IPv6 获取失败不阻塞后续流程。IPv4 获取成功后查询绑定状态，未绑定或用户未关注服务号时展示 5 分钟有效的带参二维码并轮询绑定结果。
+1. Agent 读取 `device_id` 后分别尝试获取当前设备的公网 IPv4 和 IPv6，并暂存成功获取的地址。公网 IPv4 为启动必需项：获取失败时提示用户并阻塞重试，不进入扫码绑定；公网 IPv6 获取失败不阻塞后续流程。IPv4 获取成功后，每次启动均展示 5 分钟有效的带参二维码并轮询绑定结果。
 2. 用户关注或扫码后，中央服务完成用户与设备绑定，并将 Agent 获取到的公网 IPv4 和 IPv6 写入 `ip_dict`，关联到对应设备并更新网络属性。新用户的 `alert_type` 默认为 `1`，已有用户保留原设置；Agent 仅接收绑定状态。
 3. 绑定成功后，Agent 使用当前公网 IPv4 和已成功获取的公网 IPv6 查询目标。中央服务始终返回异网和跨省 IPv4 列表；仅当 `source_ipv6` 有效时返回异网和跨省 IPv6 列表。Agent 按相同 IP 版本配对后开始持续探测，不要求用户选择探测类型或告警类型。
 4. 用户可在微信服务号中将 `alert_type` 设置为 `1`（仅异网）、`2`（仅跨省）或 `3`（两类告警）。该设置对用户绑定的全部设备生效，只控制微信通知，不影响探测。
@@ -419,13 +416,14 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
       "source_ip": "198.51.100.10",
       "target_ip": "203.0.113.20",
       "protocol_type": "icmp",
+      "loss_rate": 100,
       "unix_timestamp": 1785542460
     }
   ]
 }
 ```
 
-`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻；中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、IP 版本均与 `ip_version` 一致后，将整个批次写入 `alert_events`。目标 IP 不要求关联设备。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
+`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻，`loss_rate` 使用当前窗口对应目标和协议的 0 至 1000 整数千分比。中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、IP 版本均与 `ip_version` 一致后，将整个批次写入 `alert_events`，其中 `message` 包含格式化为一位小数百分比的丢包率。目标 IP 不要求关联设备。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
 
 ### 6.3 临时 IP 按需结果上报
 

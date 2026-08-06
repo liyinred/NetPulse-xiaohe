@@ -1,7 +1,10 @@
 """持续探测目标发现、结果和告警持久化服务。"""
 
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from time import time
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +18,7 @@ from app.models.probe_state import (
     TCPProbeState,
     UDPProbeState,
 )
+from app.models.user import User
 from app.schemas.probe import (
     ProbeAlertsRequest,
     ProbeResultRequest,
@@ -23,11 +27,41 @@ from app.schemas.probe import (
     ProbeTargetsResponse,
 )
 from app.services.device import _upsert_ip_record
-from app.services.network import lookup_network
+from app.services.network import format_probe_node_name, lookup_network
+from app.services.wechat import TemplateMessage, send_template_messages
 
 
 PROBE_MODE_CODES = {"cross_isp": 1, "cross_province": 2}
 PROTOCOL_CODES = {"icmp": 1, "tcp": 2, "udp": 3}
+PROBE_MODE_NAMES = {"cross_isp": "异网", "cross_province": "跨省"}
+ALERT_TIME_ZONE = ZoneInfo("Asia/Shanghai")
+
+
+@dataclass
+class _AlertTemplateGroup:
+    """保存同一模板消息分组中的节点和最高丢包率。"""
+
+    openid: str
+    source_ip: str
+    probe_type: str
+    unix_timestamp: int
+    node_names: list[str] = field(default_factory=list)
+    node_name_set: set[str] = field(default_factory=set)
+    maximum_loss_rate: int = 0
+
+    def add_alert(self, node_name: str, loss_rate: int) -> None:
+        """向模板消息分组追加节点并更新最高丢包率。
+
+        参数:
+            node_name: 采用“省份运营商”格式的探测节点名称。
+            loss_rate: 当前节点的整数千分比丢包率。
+        返回:
+            无返回值；相同节点名称仅保留一次。
+        """
+        if node_name not in self.node_name_set:
+            self.node_name_set.add(node_name)
+            self.node_names.append(node_name)
+        self.maximum_loss_rate = max(self.maximum_loss_rate, loss_rate)
 
 
 def _validate_public_source(
@@ -377,15 +411,81 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                 )
 
 
-def save_probe_alerts(request: ProbeAlertsRequest) -> None:
-    """校验并幂等保存自然分钟聚合丢包告警。
+def _accepts_probe_mode(user: User, probe_mode: str) -> bool:
+    """判断用户设置是否接收指定探测分类的告警。
+
+    参数:
+        user: 源设备关联的微信用户。
+        probe_mode: cross_isp 或 cross_province。
+    返回:
+        用户仍关注且告警类型匹配时返回 True。
+    """
+    mode_code = PROBE_MODE_CODES[probe_mode]
+    return (
+        user.subscribe_status == 1
+        and user.alert_type in (mode_code, 3)
+    )
+
+
+def _format_alert_time_window(unix_timestamp: int) -> str:
+    """格式化自然分钟告警的北京时间窗口。
+
+    参数:
+        unix_timestamp: 自然分钟窗口结束 Unix 时间戳。
+    返回:
+        “开始时间 - 结束时间”格式的北京时间窗口。
+    """
+    window_end = datetime.fromtimestamp(unix_timestamp, ALERT_TIME_ZONE)
+    window_start = window_end - timedelta(minutes=1)
+    return (
+        f"{window_start:%Y-%m-%d %H:%M} - "
+        f"{window_end:%Y-%m-%d %H:%M}"
+    )
+
+
+def _build_template_messages(
+    groups: dict[tuple[str, str, str, str, int], _AlertTemplateGroup],
+) -> list[TemplateMessage]:
+    """将告警分组转换为微信模板消息。
+
+    参数:
+        groups: 按用户、源 IP、分类、协议和时间窗口聚合的告警。
+    返回:
+        可直接交给微信服务发送的模板消息列表。
+    """
+    messages = []
+    for group in groups.values():
+        messages.append(
+            TemplateMessage(
+                openid=group.openid,
+                data={
+                    "first": "检测到整分钟窗口丢包告警",
+                    "keyword1": group.source_ip,
+                    "keyword2": ", ".join(group.node_names),
+                    "keyword3": group.probe_type,
+                    "keyword4": _format_alert_time_window(
+                        group.unix_timestamp
+                    ),
+                    "remark": (
+                        f"最高丢包率：{group.maximum_loss_rate / 10:.1f}%，"
+                        "请及时检查设备网络。"
+                    ),
+                },
+            )
+        )
+    return messages
+
+
+async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
+    """校验、幂等保存并发送自然分钟聚合丢包告警。
 
     参数:
         request: Agent 上报的自然分钟聚合丢包告警。
     返回:
-        无返回值；批次中已存在的 event_id 视为成功。
+        无返回值；批次中已存在的 event_id 视为成功且不重复通知。
     """
     with SessionLocal.begin() as session:
+        template_groups = {}
         for alert in request.alerts:
             if session.get(AlertEvent, alert.event_id) is not None:
                 continue
@@ -403,9 +503,11 @@ def save_probe_alerts(request: ProbeAlertsRequest) -> None:
                 alert.ip_version,
                 alert.probe_mode,
             )
+            loss_percentage = alert.loss_rate / 10
             message = (
                 f"{alert.probe_mode} {alert.protocol_type} 分钟丢包: "
-                f"{alert.source_ip} -> {alert.target_ip}"
+                f"{alert.source_ip} -> {alert.target_ip}，"
+                f"丢包率: {loss_percentage:.1f}%"
             )
             session.add(
                 AlertEvent(
@@ -418,3 +520,37 @@ def save_probe_alerts(request: ProbeAlertsRequest) -> None:
                     message=message,
                 )
             )
+            if device.user_id is None:
+                continue
+            user = session.get(User, device.user_id)
+            if user is None:
+                continue
+            openid = user.openid
+            if not openid or not _accepts_probe_mode(user, alert.probe_mode):
+                continue
+            probe_type = (
+                f"{PROBE_MODE_NAMES[alert.probe_mode]} "
+                f"{alert.protocol_type.upper()}"
+            )
+            group_key = (
+                openid,
+                str(alert.source_ip),
+                alert.probe_mode,
+                alert.protocol_type,
+                alert.unix_timestamp,
+            )
+            group = template_groups.setdefault(
+                group_key,
+                _AlertTemplateGroup(
+                    openid=openid,
+                    source_ip=str(alert.source_ip),
+                    probe_type=probe_type,
+                    unix_timestamp=alert.unix_timestamp,
+                ),
+            )
+            group.add_alert(
+                format_probe_node_name(target.province, target.isp),
+                alert.loss_rate,
+            )
+        session.flush()
+        await send_template_messages(_build_template_messages(template_groups))

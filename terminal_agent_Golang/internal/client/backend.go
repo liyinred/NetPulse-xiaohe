@@ -40,17 +40,6 @@ type publicIPResponse struct {
 	PublicIP string `json:"public_ip"`
 }
 
-type bindingStatusRequest struct {
-	DeviceID   string  `json:"device_id"`
-	SourceIPv4 string  `json:"source_ipv4"`
-	SourceIPv6 *string `json:"source_ipv6"`
-}
-
-type bindingStatusResponse struct {
-	Bound  bool         `json:"bound"`
-	Device *BindingInfo `json:"device"`
-}
-
 // BindingInfo 保存中央服务确认绑定后的设备网络信息。
 type BindingInfo struct {
 	DeviceID     string  `json:"device_id"`
@@ -156,53 +145,6 @@ func (backend *Backend) getPublicIP(
 		return netip.Addr{}, fmt.Errorf("中央服务返回的公网 IPv%d 无效", expectedVersion)
 	}
 	return publicIP, nil
-}
-
-// CheckBinding 查询设备是否绑定有效关注用户，并刷新当前公网地址。
-//
-// 参数:
-//   - ctx: 控制请求取消的 Context。
-//   - deviceID: Agent 本地持久化的设备标识。
-//   - sourceIPv4: 本次启动获取到的公网 IPv4。
-//   - sourceIPv6: 本次启动获取到的公网 IPv6，未获取到时为空。
-//
-// 返回值: 已有效绑定时返回设备网络信息；未绑定时返回 nil；请求失败时返回错误。
-func (backend *Backend) CheckBinding(
-	ctx context.Context,
-	deviceID string,
-	sourceIPv4 netip.Addr,
-	sourceIPv6 *netip.Addr,
-) (*BindingInfo, error) {
-	var sourceIPv6String *string
-	if sourceIPv6 != nil {
-		value := sourceIPv6.String()
-		sourceIPv6String = &value
-	}
-	request, err := newJSONRequest(
-		ctx,
-		http.MethodPost,
-		backend.baseURL+"/devices/binding-status",
-		bindingStatusRequest{
-			DeviceID:   deviceID,
-			SourceIPv4: sourceIPv4.String(),
-			SourceIPv6: sourceIPv6String,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("创建绑定状态请求失败: %w", err)
-	}
-
-	var response bindingStatusResponse
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
-		return nil, fmt.Errorf("查询绑定状态失败: %w", err)
-	}
-	if !response.Bound {
-		return nil, nil
-	}
-	if response.Device == nil {
-		return nil, errors.New("绑定状态响应缺少设备网络信息")
-	}
-	return response.Device, nil
 }
 
 // RequestQRCode 向 FastAPI 后端申请带场景值的微信二维码。

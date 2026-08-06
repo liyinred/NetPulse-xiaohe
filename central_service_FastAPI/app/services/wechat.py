@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -13,6 +14,10 @@ from app.core.config import WECHAT_APP_ID, WECHAT_APP_SECRET
 WECHAT_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
 WECHAT_QRCODE_URL = "https://api.weixin.qq.com/cgi-bin/qrcode/create"
 WECHAT_QRCODE_IMAGE_URL = "https://mp.weixin.qq.com/cgi-bin/showqrcode"
+WECHAT_TEMPLATE_MESSAGE_URL = (
+    "https://api.weixin.qq.com/cgi-bin/message/template/send"
+)
+PROBE_ALERT_TEMPLATE_ID = "O-GGfJtwz_5biXaKHjBfADGcIaHrdI4TT3Ajg3a6tDI"
 QRCODE_EXPIRE_SECONDS = 5 * 60
 ACCESS_TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
 WECHAT_API_TIMEOUT_SECONDS = 10.0
@@ -20,6 +25,19 @@ WECHAT_API_TIMEOUT_SECONDS = 10.0
 _access_token = ""
 _access_token_expires_at = 0.0
 _access_token_lock = asyncio.Lock()
+
+
+@dataclass(frozen=True)
+class TemplateMessage:
+    """保存一条待发送的微信模板消息。
+
+    参数:
+        openid: 接收用户的微信 openid。
+        data: 模板字段名称及对应文本值。
+    """
+
+    openid: str
+    data: dict[str, str]
 
 
 def parse_wechat_response(
@@ -149,3 +167,54 @@ async def create_qrcode(scene_str: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=WECHAT_API_TIMEOUT_SECONDS) as client:
         access_token = await get_access_token(client)
         return await create_qrcode_ticket(client, access_token, scene_str)
+
+
+async def send_template_message(
+    client: httpx.AsyncClient,
+    access_token: str,
+    message: TemplateMessage,
+) -> dict[str, Any]:
+    """调用微信 API 发送一条丢包告警模板消息。
+
+    参数:
+        client: 用于调用微信 API 的异步 HTTP 客户端。
+        access_token: 微信接口调用凭据。
+        message: 接收用户及模板字段数据。
+    返回:
+        微信 API 返回的模板消息发送结果。
+    """
+    try:
+        response = await client.post(
+            WECHAT_TEMPLATE_MESSAGE_URL,
+            params={"access_token": access_token},
+            json={
+                "touser": message.openid,
+                "template_id": PROBE_ALERT_TEMPLATE_ID,
+                "data": {
+                    key: {"value": value}
+                    for key, value in message.data.items()
+                },
+            },
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="微信模板消息请求失败") from exc
+    return parse_wechat_response(response, "模板消息发送")
+
+
+async def send_template_messages(
+    messages: list[TemplateMessage],
+) -> None:
+    """复用同一 AccessToken 依次发送多条模板消息。
+
+    参数:
+        messages: 待发送的微信模板消息列表。
+    返回:
+        无返回值；任一微信请求失败时抛出 HTTPException。
+    """
+    if not messages:
+        return
+    validate_wechat_credentials()
+    async with httpx.AsyncClient(timeout=WECHAT_API_TIMEOUT_SECONDS) as client:
+        access_token = await get_access_token(client)
+        for message in messages:
+            await send_template_message(client, access_token, message)

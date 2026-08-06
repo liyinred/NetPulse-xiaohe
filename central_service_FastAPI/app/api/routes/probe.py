@@ -73,7 +73,7 @@ async def receive_probe_alerts(
         接收成功标志。
     """
     try:
-        save_probe_alerts(request)
+        await save_probe_alerts(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ProbeAcceptedResponse()

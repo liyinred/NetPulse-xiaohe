@@ -30,26 +30,6 @@ class DeviceBindingResult:
     source_ipv6: IPv6Address | None
 
 
-def _find_bound_user_id(session: Session, device_id: str) -> int | None:
-    """查询设备当前绑定且仍关注服务号的用户。
-
-    参数:
-        session: 当前数据库会话。
-        device_id: Agent 本地持久化的设备标识。
-    返回:
-        有效绑定用户的内部主键；不存在时返回 None。
-    """
-    return session.scalar(
-        select(User.id)
-        .join(Device, Device.user_id == User.id)
-        .where(
-            Device.device_id == device_id,
-            User.openid.is_not(None),
-            User.subscribe_status == 1,
-        )
-    )
-
-
 def _find_scene_user_id(
     session: Session,
     scene_str: str,
@@ -160,48 +140,6 @@ def _persist_device_binding(
     if source_ipv6 is not None:
         _upsert_ip_record(session, device.id, source_ipv6, update_time)
     return device
-
-
-async def refresh_bound_device(
-    device_id: str,
-    source_ipv4: IPv4Address,
-    source_ipv6: IPv6Address | None,
-) -> DeviceBindingResult | None:
-    """查询有效绑定并刷新设备当前公网地址。
-
-    参数:
-        device_id: Agent 本地持久化的设备标识。
-        source_ipv4: 当前公网 IPv4。
-        source_ipv6: 当前公网 IPv6，未获取到时为空。
-    返回:
-        已绑定时返回刷新结果，未绑定或用户未关注时返回 None。
-    """
-    with SessionLocal() as session:
-        user_id = _find_bound_user_id(session, device_id)
-    if user_id is None:
-        return None
-
-    network_info = await lookup_network(source_ipv4)
-    update_time = int(time())
-    with SessionLocal.begin() as session:
-        current_user_id = _find_bound_user_id(session, device_id)
-        if current_user_id != user_id:
-            return None
-        device = _persist_device_binding(
-            session,
-            device_id,
-            current_user_id,
-            source_ipv4,
-            source_ipv6,
-            network_info,
-            update_time,
-        )
-        return DeviceBindingResult(
-            id=device.id,
-            device_id=device_id,
-            network_info=network_info,
-            source_ipv6=source_ipv6,
-        )
 
 
 async def bind_device_by_scene(

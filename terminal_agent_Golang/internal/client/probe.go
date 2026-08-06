@@ -64,6 +64,7 @@ type ProbeAlertRequest struct {
 	SourceIP      string `json:"source_ip"`
 	TargetIP      string `json:"target_ip"`
 	ProtocolType  string `json:"protocol_type"`
+	LossRate      int    `json:"loss_rate"`
 	UnixTimestamp int64  `json:"unix_timestamp"`
 }
 

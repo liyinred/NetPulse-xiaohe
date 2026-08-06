@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/netip"
 	"strings"
 	"sync"
@@ -15,8 +16,9 @@ import (
 )
 
 const (
-	probeCount   = 100
-	windowLength = time.Minute
+	probeCount         = 100
+	windowLength       = time.Minute
+	reportJitterWindow = 10 * time.Second
 )
 
 var protocolNames = []string{"icmp", "tcp", "udp"}
@@ -282,7 +284,7 @@ func (engine *Engine) printWindowResults(
 				"IPv%d %s -> %s [%s]\n",
 				result.version,
 				result.source,
-				stats.target.Address,
+				stats.target.NodeName(),
 				strings.Join(modeNames, "/"),
 			)
 			protocols := []struct {
@@ -481,6 +483,7 @@ func buildWindowAlerts(
 				if protocol.stats.attempted == protocol.stats.succeeded {
 					continue
 				}
+				lossRate := summarize(protocol.stats).LossRate
 				for _, mode := range targetStats.target.Modes {
 					alerts = append(alerts, client.ProbeAlertRequest{
 						EventID:       generateEventID(),
@@ -490,6 +493,7 @@ func buildWindowAlerts(
 						SourceIP:      result.source.String(),
 						TargetIP:      targetStats.target.Address.String(),
 						ProtocolType:  protocol.name,
+						LossRate:      lossRate,
 						UnixTimestamp: windowEnd,
 					})
 				}
@@ -502,7 +506,7 @@ func buildWindowAlerts(
 // submitWindowAlerts 异步上报一个自然分钟内的聚合丢包告警。
 //
 // 参数:
-//   - ctx: 控制 HTTP 请求取消的 Context。
+//   - ctx: 控制随机延迟等待和 HTTP 请求取消的 Context。
 //   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
 //   - results: 当前自然分钟的探测统计。
 //
@@ -517,17 +521,20 @@ func (engine *Engine) submitWindowAlerts(
 		return
 	}
 	request := client.ProbeAlertsRequest{Alerts: alerts}
-	go func() {
-		if err := engine.backend.SubmitProbeAlerts(ctx, request); err != nil {
-			fmt.Fprintf(engine.output, "分钟聚合告警上报失败: %v\n", err)
-		}
-	}()
+	engine.submitWithJitter(
+		ctx,
+		windowEnd,
+		"分钟聚合告警上报失败",
+		func(submitContext context.Context) error {
+			return engine.backend.SubmitProbeAlerts(submitContext, request)
+		},
+	)
 }
 
 // submitWindowResults 将统计按目标分类投影并异步上报。
 //
 // 参数:
-//   - ctx: 控制 HTTP 请求取消的 Context。
+//   - ctx: 控制随机延迟等待和 HTTP 请求取消的 Context。
 //   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
 //   - results: 各源地址的目标统计。
 //
@@ -562,13 +569,55 @@ func (engine *Engine) submitWindowResults(
 				UnixTimestamp: windowEnd,
 				Targets:       targets,
 			}
-			go func() {
-				if err := engine.backend.SubmitProbeResult(ctx, request); err != nil {
-					fmt.Fprintf(engine.output, "分钟探测结果上报失败: %v\n", err)
-				}
-			}()
+			engine.submitWithJitter(
+				ctx,
+				windowEnd,
+				"分钟探测结果上报失败",
+				func(submitContext context.Context) error {
+					return engine.backend.SubmitProbeResult(submitContext, request)
+				},
+			)
 		}
 	}
+}
+
+// submitWithJitter 在窗口结束后的随机十秒内异步执行一次上报。
+//
+// 参数:
+//   - ctx: 控制延迟等待和 HTTP 请求取消的 Context。
+//   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
+//   - failureMessage: 上报失败时输出的提示文本。
+//   - submit: 执行具体上报请求的函数。
+//
+// 返回值: 无。
+func (engine *Engine) submitWithJitter(
+	ctx context.Context,
+	windowEnd int64,
+	failureMessage string,
+	submit func(context.Context) error,
+) {
+	plannedAt := time.Unix(windowEnd, 0).Add(randomReportDelay())
+	go func() {
+		if err := waitUntil(ctx, plannedAt); err != nil {
+			return
+		}
+		if err := submit(ctx); err != nil {
+			fmt.Fprintf(engine.output, "%s: %v\n", failureMessage, err)
+		}
+	}()
+}
+
+// randomReportDelay 生成小于十秒的加密安全随机上报延迟。
+//
+// 参数: 无。
+// 返回值: [0, 10s) 范围内的随机时长；随机源失败时返回零。
+func randomReportDelay() time.Duration {
+	upperBound := big.NewInt(int64(reportJitterWindow))
+	randomValue, err := rand.Int(rand.Reader, upperBound)
+	if err != nil {
+		return 0
+	}
+	return time.Duration(randomValue.Int64())
 }
 
 // summarize 将内部统计转换为服务端整数千分比和整数毫秒结果。

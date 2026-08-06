@@ -25,7 +25,7 @@ const (
 	ipv4MaxAttempts = 3
 )
 
-// Run 完成设备绑定，并按用户确认启动持续探测。
+// Run 每次通过二维码更新设备绑定，并按用户确认启动持续探测。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
@@ -73,38 +73,29 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		fmt.Fprintf(output, "已获取公网 IPv6: %s\n", publicIPv6)
 	}
 
-	bindingInfo, err := backend.CheckBinding(ctx, deviceID, sourceIPv4, sourceIPv6)
+	qrCode, err := backend.RequestQRCode(ctx)
 	if err != nil {
-		return fmt.Errorf("设备绑定失败: %w", err)
+		return err
 	}
-	if bindingInfo != nil {
-		fmt.Fprintln(output, "设备已绑定，中央服务已刷新当前公网地址。")
-		printBindingInfo(output, *bindingInfo)
-	} else {
-		qrCode, requestErr := backend.RequestQRCode(ctx)
-		if requestErr != nil {
-			return requestErr
-		}
-		if printErr := printQRCode(output, qrCode.URL); printErr != nil {
-			return printErr
-		}
-
-		fmt.Fprintln(output, "请使用微信扫描二维码完成服务号关注，正在等待确认...")
-		bindingInfoValue, waitErr := backend.WaitForLogin(
-			ctx,
-			qrCode.SceneString,
-			deviceID,
-			sourceIPv4,
-			sourceIPv6,
-			time.Duration(qrCode.ExpireSeconds)*time.Second,
-		)
-		if waitErr != nil {
-			return fmt.Errorf("设备绑定更新失败: %w", waitErr)
-		}
-
-		fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
-		printBindingInfo(output, bindingInfoValue)
+	if err := printQRCode(output, qrCode.URL); err != nil {
+		return err
 	}
+
+	fmt.Fprintln(output, "请使用微信扫描二维码完成设备绑定更新，正在等待确认...")
+	bindingInfo, err := backend.WaitForLogin(
+		ctx,
+		qrCode.SceneString,
+		deviceID,
+		sourceIPv4,
+		sourceIPv6,
+		time.Duration(qrCode.ExpireSeconds)*time.Second,
+	)
+	if err != nil {
+		return fmt.Errorf("设备绑定更新失败: %w", err)
+	}
+
+	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
+	printBindingInfo(output, bindingInfo)
 
 	confirmed, err := confirmContinuousProbe(input, output)
 	if err != nil {

@@ -3,13 +3,11 @@
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.device import (
-    DeviceBindingStatusRequest,
-    DeviceBindingStatusResponse,
     DeviceBindRequest,
     DeviceBindResponse,
     build_device_network_info,
 )
-from app.services.device import bind_device_by_scene, refresh_bound_device
+from app.services.device import bind_device_by_scene
 from app.services.network import IPLookupError
 
 
@@ -43,31 +41,4 @@ async def bind_device(binding: DeviceBindRequest) -> DeviceBindResponse:
     return DeviceBindResponse(
         id=binding_result.id,
         **device_info.model_dump(),
-    )
-
-
-@router.post("/binding-status", response_model=DeviceBindingStatusResponse)
-async def get_binding_status(
-    status_request: DeviceBindingStatusRequest,
-) -> DeviceBindingStatusResponse:
-    """查询有效绑定状态并刷新设备当前公网地址。
-
-    参数:
-        status_request: 设备标识及本次启动获取到的公网地址。
-    返回:
-        设备已绑定且用户仍关注服务号时 bound 为 True。
-    """
-    try:
-        binding_result = await refresh_bound_device(
-            status_request.device_id,
-            status_request.source_ipv4,
-            status_request.source_ipv6,
-        )
-    except IPLookupError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    if binding_result is None:
-        return DeviceBindingStatusResponse(bound=False)
-    return DeviceBindingStatusResponse(
-        bound=True,
-        device=build_device_network_info(binding_result),
     )

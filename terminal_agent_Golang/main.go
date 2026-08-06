@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -19,6 +20,9 @@ func main() {
 	defer stop()
 
 	if err := app.Run(ctx, os.Stdin, os.Stdout); err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "Agent 运行失败: %v\n", err)
 		os.Exit(1)
 	}

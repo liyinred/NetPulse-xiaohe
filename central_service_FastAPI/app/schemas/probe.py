@@ -74,6 +74,7 @@ class ProbeAlertRequest(BaseModel):
     source_ip: IPv4Address | IPv6Address
     target_ip: IPv4Address | IPv6Address
     protocol_type: ProtocolType
+    loss_rate: int = Field(ge=1, le=1000)
     unix_timestamp: int = Field(gt=0)
 
 
