@@ -1,10 +1,11 @@
-// Package client 提供 FastAPI 中央服务的 HTTP Client。
+// Package client 提供 FastAPI 中央服务和外部公网地址查询的 HTTP Client。
 package client
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -13,15 +14,18 @@ import (
 	"time"
 )
 
-const pollInterval = 2 * time.Second
+const (
+	pollInterval  = 2 * time.Second
+	publicIPv6URL = "http://6.itdog.cn"
+)
 
 var errQRCodeExpired = errors.New("二维码已过期")
 
-// Backend 提供 FastAPI 中央服务访问能力。
+// Backend 提供 FastAPI 中央服务访问和公网 IPv6 查询能力。
 type Backend struct {
-	baseURL    string
-	httpClient *http.Client
-	ipv6Client *http.Client
+	baseURL          string
+	httpClient       *http.Client
+	publicIPv6Client *http.Client
 }
 
 // QRCode 保存微信登录二维码信息。
@@ -52,18 +56,18 @@ type BindingInfo struct {
 	ProvinceName string  `json:"province_name"`
 }
 
-// NewBackend 创建带请求超时的中央服务 Client。
+// NewBackend 创建带请求超时的中央服务及公网 IPv6 查询 Client。
 //
 // 参数:
 //   - baseURL: FastAPI 后端基础 URL。
 //   - timeout: 单次 HTTP 请求超时时间。
 //
-// 返回值: 可用于二维码登录和设备绑定轮询的 Backend。
+// 返回值: 可用于中央服务访问和公网 IPv6 查询的 Backend。
 func NewBackend(baseURL string, timeout time.Duration) *Backend {
 	return &Backend{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: newHTTPClient("tcp4", timeout),
-		ipv6Client: newHTTPClient("tcp6", timeout),
+		baseURL:          strings.TrimRight(baseURL, "/"),
+		httpClient:       newHTTPClient("tcp4", timeout, true),
+		publicIPv6Client: newHTTPClient("tcp6", timeout, false),
 	}
 }
 
@@ -72,11 +76,19 @@ func NewBackend(baseURL string, timeout time.Duration) *Backend {
 // 参数:
 //   - network: net.Dialer 使用的 tcp4 或 tcp6 网络类型。
 //   - timeout: 单次 HTTP 请求超时时间。
+//   - useEnvironmentProxy: 是否使用环境变量配置的 HTTP Proxy。
 //
 // 返回值: 使用指定地址族建立连接的 HTTP Client。
-func newHTTPClient(network string, timeout time.Duration) *http.Client {
+func newHTTPClient(
+	network string,
+	timeout time.Duration,
+	useEnvironmentProxy bool,
+) *http.Client {
 	dialer := &net.Dialer{Timeout: timeout}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if !useEnvironmentProxy {
+		transport.Proxy = nil
+	}
 	transport.DialContext = func(
 		ctx context.Context,
 		_ string,
@@ -97,14 +109,34 @@ func (backend *Backend) GetPublicIPv4(ctx context.Context) (netip.Addr, error) {
 	return backend.getPublicIP(ctx, backend.httpClient, "/network/public-ipv4", 4)
 }
 
-// GetPublicIPv6 通过 IPv6 连接获取中央服务观察到的公网地址。
+// GetPublicIPv6 通过 IPv6 连接获取 ITDOG 观察到的公网地址。
 //
 // 参数:
 //   - ctx: 控制请求取消的 Context。
 //
 // 返回值: 有效公网 IPv6；请求或响应无效时返回错误。
 func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
-	return backend.getPublicIP(ctx, backend.ipv6Client, "/network/public-ipv6", 6)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPv6URL, nil)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("创建公网 IPv6 请求失败: %w", err)
+	}
+	response, err := backend.publicIPv6Client.Do(request)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("从 ITDOG 获取公网 IPv6 失败: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return netip.Addr{}, fmt.Errorf("ITDOG 返回 HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize))
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("读取 ITDOG 公网 IPv6 响应失败: %w", err)
+	}
+	publicIP, err := netip.ParseAddr(strings.TrimSpace(string(body)))
+	if err != nil || !publicIP.Is6() || !publicIP.IsGlobalUnicast() || publicIP.IsPrivate() {
+		return netip.Addr{}, errors.New("ITDOG 返回的公网 IPv6 无效")
+	}
+	return publicIP, nil
 }
 
 // getPublicIP 请求并校验指定版本的公网地址。

@@ -35,6 +35,7 @@ PROBE_MODE_CODES = {"cross_isp": 1, "cross_province": 2}
 PROTOCOL_CODES = {"icmp": 1, "tcp": 2, "udp": 3}
 PROBE_MODE_NAMES = {"cross_isp": "异网", "cross_province": "跨省"}
 ALERT_TIME_ZONE = ZoneInfo("Asia/Shanghai")
+TEMPLATE_NODE_MAX_CHARACTERS = 20
 
 
 @dataclass
@@ -443,6 +444,39 @@ def _format_alert_time_window(unix_timestamp: int) -> str:
     )
 
 
+def _split_node_names(node_names: list[str]) -> list[str]:
+    """按微信模板字段字符上限拆分探测节点名称。
+
+    参数:
+        node_names: 已按告警出现顺序去重的探测节点名称。
+    返回:
+        使用“, ”连接且不超过字符上限的节点文本列表。
+    """
+    chunks = []
+    current_names = []
+    current_length = 0
+    separator_length = len(", ")
+    for node_name in node_names:
+        additional_length = len(node_name)
+        if current_names:
+            additional_length += separator_length
+        if (
+            current_names
+            and current_length + additional_length
+            > TEMPLATE_NODE_MAX_CHARACTERS
+        ):
+            chunks.append(", ".join(current_names))
+            current_names = []
+            current_length = 0
+        if current_names:
+            current_length += separator_length
+        current_names.append(node_name)
+        current_length += len(node_name)
+    if current_names:
+        chunks.append(", ".join(current_names))
+    return chunks
+
+
 def _build_template_messages(
     groups: dict[tuple[str, str, str, str, int], _AlertTemplateGroup],
 ) -> list[TemplateMessage]:
@@ -455,24 +489,32 @@ def _build_template_messages(
     """
     messages = []
     for group in groups.values():
-        messages.append(
-            TemplateMessage(
-                openid=group.openid,
-                data={
-                    "first": "检测到整分钟窗口丢包告警",
-                    "keyword1": group.source_ip,
-                    "keyword2": ", ".join(group.node_names),
-                    "keyword3": group.probe_type,
-                    "keyword4": _format_alert_time_window(
-                        group.unix_timestamp
-                    ),
-                    "remark": (
-                        f"最高丢包率：{group.maximum_loss_rate / 10:.1f}%，"
-                        "请及时检查设备网络。"
-                    ),
-                },
+        node_chunks = _split_node_names(group.node_names)
+        chunk_count = len(node_chunks)
+        for chunk_index, node_chunk in enumerate(node_chunks, start=1):
+            probe_type = group.probe_type
+            if chunk_count > 1:
+                probe_type = (
+                    f"{probe_type}（{chunk_index}/{chunk_count}）"
+                )
+            messages.append(
+                TemplateMessage(
+                    openid=group.openid,
+                    data={
+                        "first": "检测到整分钟窗口丢包告警",
+                        "keyword1": group.source_ip,
+                        "keyword2": node_chunk,
+                        "keyword3": probe_type,
+                        "keyword4": _format_alert_time_window(
+                            group.unix_timestamp
+                        ),
+                        "remark": (
+                            f"最高丢包率：{group.maximum_loss_rate / 10:.1f}%，"
+                            "请及时检查设备网络。"
+                        ),
+                    },
+                )
             )
-        )
     return messages
 
 

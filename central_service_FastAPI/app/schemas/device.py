@@ -5,7 +5,7 @@ from __future__ import annotations
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, IPvAnyAddress
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from app.services.device import DeviceBindingResult
@@ -40,9 +40,9 @@ class DeviceBindResponse(DeviceNetworkInfo):
 
 
 class PublicIPAddressResponse(BaseModel):
-    """中央服务观察到的公网 IP。"""
+    """中央服务观察到的公网 IPv4。"""
 
-    public_ip: IPvAnyAddress
+    public_ip: IPv4Address
 
 
 def build_device_network_info(

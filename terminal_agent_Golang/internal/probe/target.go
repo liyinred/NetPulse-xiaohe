@@ -38,10 +38,10 @@ type Target struct {
 	Modes    []string
 }
 
-// NodeName 返回目标的省份与运营商节点名称。
+// NodeName 返回目标的省份与运营商名称。
 //
 // 参数: 无。
-// 返回值: “{省份}{运营商}节点”格式的目标名称；编码未知时使用“未知”或“其他”。
+// 返回值: “{省份}{运营商}”格式的目标名称；编码未知时使用“未知”或“其他”。
 func (target Target) NodeName() string {
 	provinceName := provinceNamesByCode[target.Province]
 	if provinceName == "" {
@@ -51,7 +51,7 @@ func (target Target) NodeName() string {
 	if ispName == "" {
 		ispName = "其他"
 	}
-	return provinceName + ispName + "节点"
+	return provinceName + ispName
 }
 
 // TargetSnapshot 保存当前双栈源地址及同版本合并目标。

@@ -64,13 +64,11 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(output, "已获取公网 IPv4: %s\n", sourceIPv4)
 
 	var sourceIPv6 *netip.Addr
 	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
 	if ipv6Err == nil {
 		sourceIPv6 = &publicIPv6
-		fmt.Fprintf(output, "已获取公网 IPv6: %s\n", publicIPv6)
 	}
 
 	qrCode, err := backend.RequestQRCode(ctx)
