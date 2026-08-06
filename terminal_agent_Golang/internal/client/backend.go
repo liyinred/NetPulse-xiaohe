@@ -118,23 +118,23 @@ func (backend *Backend) GetPublicIPv4(ctx context.Context) (netip.Addr, error) {
 func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPv6URL, nil)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("创建公网 IPv6 请求失败: %w", err)
+		return netip.Addr{}, errors.New("创建公网 IPv6 请求失败: 请求地址无效")
 	}
 	response, err := backend.publicIPv6Client.Do(request)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("从 ITDOG 获取公网 IPv6 失败: %w", err)
+		return netip.Addr{}, fmt.Errorf("获取公网 IPv6 失败: %w", safeRequestError(err))
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return netip.Addr{}, fmt.Errorf("ITDOG 返回 HTTP %d", response.StatusCode)
+		return netip.Addr{}, fmt.Errorf("公网 IPv6 服务返回 HTTP %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize))
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("读取 ITDOG 公网 IPv6 响应失败: %w", err)
+		return netip.Addr{}, fmt.Errorf("读取公网 IPv6 服务响应失败: %w", safeRequestError(err))
 	}
 	publicIP, err := netip.ParseAddr(strings.TrimSpace(string(body)))
 	if err != nil || !publicIP.Is6() || !publicIP.IsGlobalUnicast() || publicIP.IsPrivate() {
-		return netip.Addr{}, errors.New("ITDOG 返回的公网 IPv6 无效")
+		return netip.Addr{}, errors.New("公网 IPv6 服务返回的地址无效")
 	}
 	return publicIP, nil
 }
@@ -161,7 +161,7 @@ func (backend *Backend) getPublicIP(
 		nil,
 	)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("创建公网 IPv%d 请求失败: %w", expectedVersion, err)
+		return netip.Addr{}, fmt.Errorf("创建公网 IPv%d 请求失败: 请求地址无效", expectedVersion)
 	}
 
 	var response publicIPResponse
@@ -193,7 +193,7 @@ func (backend *Backend) RequestQRCode(ctx context.Context) (QRCode, error) {
 		nil,
 	)
 	if err != nil {
-		return QRCode{}, fmt.Errorf("创建二维码请求失败: %w", err)
+		return QRCode{}, errors.New("创建二维码请求失败: 请求地址无效")
 	}
 
 	var response QRCode
@@ -274,7 +274,7 @@ func (backend *Backend) checkLogin(
 ) (*BindingInfo, error) {
 	endpoint, err := url.Parse(backend.baseURL + "/wechat/qrcode/status")
 	if err != nil {
-		return nil, fmt.Errorf("创建登录状态请求失败: %w", err)
+		return nil, errors.New("创建登录状态请求失败: 请求地址无效")
 	}
 	query := endpoint.Query()
 	query.Set("scene_str", sceneString)
@@ -287,7 +287,7 @@ func (backend *Backend) checkLogin(
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建登录状态请求失败: %w", err)
+		return nil, errors.New("创建登录状态请求失败: 请求地址无效")
 	}
 
 	var response qrCodeStatusResponse

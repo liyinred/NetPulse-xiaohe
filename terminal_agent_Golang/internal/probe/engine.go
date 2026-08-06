@@ -131,7 +131,7 @@ func (engine *Engine) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		engine.printWindowResults(windowStart, windowEnd, results)
+		engine.printWindowResults(windowStart, results)
 		engine.submitWindowResults(ctx, windowEnd.Unix(), results)
 		engine.submitWindowAlerts(ctx, windowEnd.Unix(), results)
 		select {
@@ -254,22 +254,20 @@ type sourceWindowResult struct {
 //
 // 参数:
 //   - windowStart: 自然分钟窗口起点。
-//   - windowEnd: 自然分钟窗口终点。
 //   - results: 当前窗口按源地址汇总的目标统计。
 //
 // 返回值: 无。
 func (engine *Engine) printWindowResults(
 	windowStart time.Time,
-	windowEnd time.Time,
 	results []sourceWindowResult,
 ) {
 	fmt.Fprintf(
 		engine.output,
-		"\n%s 至 %s 整分钟探测结果:\n",
+		"\n%s 整分钟探测结果:\n",
 		windowStart.Format("2006-01-02 15:04:05"),
-		windowEnd.Format("15:04:05"),
 	)
 	for _, result := range results {
+		fmt.Fprintf(engine.output, "IPv%d: %s\n", result.version, result.source)
 		for _, stats := range result.stats {
 			modeNames := make([]string, 0, len(stats.target.Modes))
 			for _, mode := range stats.target.Modes {
@@ -281,10 +279,9 @@ func (engine *Engine) printWindowResults(
 			}
 			fmt.Fprintf(
 				engine.output,
-				"IPv%d %s -> %s [%s]\n",
-				result.version,
-				result.source,
+				"  Target: %s (%s) [%s]\n",
 				stats.target.NodeName(),
+				stats.target.Address,
 				strings.Join(modeNames, "/"),
 			)
 			protocols := []struct {
@@ -300,7 +297,7 @@ func (engine *Engine) printWindowResults(
 				if protocol.stats.succeeded == 0 {
 					fmt.Fprintf(
 						engine.output,
-						"  %s: 成功 %d/%d，丢包率 %.1f%%，超时\n",
+						"    %s: 成功 %d/%d，丢包率 %.1f%%，超时\n",
 						protocol.name,
 						protocol.stats.succeeded,
 						protocol.stats.attempted,
@@ -310,7 +307,7 @@ func (engine *Engine) printWindowResults(
 				}
 				fmt.Fprintf(
 					engine.output,
-					"  %s: 成功 %d/%d，丢包率 %.1f%%，平均延迟 %d ms\n",
+					"    %s: 成功 %d/%d，丢包率 %.1f%%，平均延迟 %d ms\n",
 					protocol.name,
 					protocol.stats.succeeded,
 					protocol.stats.attempted,

@@ -38,14 +38,14 @@
 
 - `device_id`：首次运行时随机生成 `UUID v4`，作为 Agent 使用的稳定设备标识。
 - `openid`：仅由中央服务保存和使用，不返回给 Agent，也不写入本地配置。
-- `device_related_id`：可为空；中央服务在公网地址获取和绑定过程中识别设备的 IPv4/IPv6，并通过 `ip_dict.device_related_id` 将 IP 记录关联到 `devices.id`；空值表示 IP 记录尚未关联设备，Agent 不在本地持久化该字段。
+- `device_related_id`：在 `ip_dict` 中可为空，中央服务在公网地址获取和绑定过程中识别设备的 IPv4/IPv6，并通过该字段将 IP 记录关联到 `devices.id`；空值表示 IP 记录尚未关联设备。在 `probe_state_icmp`、`probe_state_tcp`、`probe_state_udp` 和 `alert_events` 中为非空字段，用于记录实际上报结果或告警的设备。Agent 不在本地持久化该内部主键。
 - `public_status`：存储在 `ip_dict` 中，控制该公网 IP 是否可被选为探测目标；`0` 表示未公开，`1` 表示公开。新 IP 默认值为 `1`，后续内部控制器关联的 IP 按 13.3 节设为 `0`。
 
 对于已关联设备的 IP 记录，中央服务通过 `devices.id = ip_dict.device_related_id` 维护设备与多个公网 IP 的一对多关联；`device_related_id` 为空的记录不属于任何设备。Agent 和中央服务之间的设备识别只使用 `device_id`。后续增加基于 salt 的设备身份校验，具体方案见 13.2 节。
 
 ### 2.3 结果与告警上报
 
-系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束后，为每个结果或告警 HTTP 请求独立生成 `[0, 10s)` 的随机延迟，以窗口结束时间为基准异步发起上报，避免大量 Agent 在整分钟边界形成请求尖峰。结果按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组；同时按 `ip_version + probe_mode + source_ip + target_ip + protocol_type` 聚合当前窗口的丢包，每个聚合维度最多生成一条告警，所有告警通过一个 `alerts` 数组一次上报。随机延迟不改变请求中的窗口结束时间戳，也不阻塞下一窗口探测。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务保存结果与事件，并根据告警事件中的 `device_id` 查询源设备所属用户的 `alert_type`；仅当该值包含对应告警类型时发送微信消息。
+系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束后，为每个结果或告警 HTTP 请求独立生成 `[0, 10s)` 的随机延迟，以窗口结束时间为基准异步发起上报，避免大量 Agent 在整分钟边界形成请求尖峰。结果按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组；同时按 `ip_version + probe_mode + source_ip + target_ip + protocol_type` 聚合当前窗口的丢包，每个聚合维度最多生成一条告警，所有告警通过一个 `alerts` 数组一次上报。随机延迟不改变请求中的窗口结束时间戳，也不阻塞下一窗口探测。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务校验请求中的 `device_id` 后，将对应 `devices.id` 写入结果或事件的 `device_related_id`；发送告警时通过该字段关联设备用户，仅当用户仍关注且 `alert_type` 包含对应告警类型时发送微信消息。
 
 ### 2.4 持续探测与按需探测隔离
 
@@ -399,7 +399,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、源目标版本均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；目标本身不要求关联设备。任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，相同幂等键的重试通过比较三张状态表中的已有结果处理。
+中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询设备及源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、源目标版本均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；目标本身不要求关联设备。任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，每条记录的 `device_related_id` 保存本次上报设备的 `devices.id`；相同幂等键的重试通过比较三张状态表中的已有设备关联及探测结果处理。
 
 ### 6.2 分钟聚合丢包告警
 
@@ -423,7 +423,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻，`loss_rate` 使用当前窗口对应目标和协议的 0 至 1000 整数千分比。中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、IP 版本均与 `ip_version` 一致后，将整个批次写入 `alert_events`，其中 `message` 包含格式化为一位小数百分比的丢包率。目标 IP 不要求关联设备。用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知；通知正文持久化后再发送，不匹配的事件仅保存。
+`event_id` 作为单条分钟告警的幂等键，`unix_timestamp` 使用自然分钟窗口结束时刻，`loss_rate` 使用当前窗口对应目标和协议的 0 至 1000 整数千分比。中央服务在同一事务内逐条校验 `source_ip` 属于 `device_id`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、IP 版本均与 `ip_version` 一致后，将当前设备的 `devices.id` 写入 `alert_events.device_related_id`，再保存整个告警批次。目标 IP 不要求关联设备。发送服务号模板消息时，中央服务直接通过事件的 `device_related_id` 查询设备关联用户及其 `openid`；用户仍关注服务号时，异网事件仅向 `alert_type` 为 `1` 或 `3` 的用户通知，跨省事件仅向 `alert_type` 为 `2` 或 `3` 的用户通知，不匹配的事件仅保存。
 
 ### 6.3 临时 IP 按需结果上报
 

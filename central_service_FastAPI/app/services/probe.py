@@ -331,7 +331,7 @@ def _get_valid_target(
 
 
 def save_probe_result(request: ProbeResultRequest) -> None:
-    """校验并幂等保存一个分类的分钟探测结果。
+    """校验并幂等保存一个分类及其上报设备的分钟探测结果。
 
     参数:
         request: Agent 上报的完整分钟结果。
@@ -375,11 +375,16 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                 )
             ).all()
             existing_values = {
-                row.target_ip_id: (row.loss_rate, row.rtt_ms)
+                row.target_ip_id: (
+                    row.device_related_id,
+                    row.loss_rate,
+                    row.rtt_ms,
+                )
                 for row in existing_rows
             }
             incoming_values = {
                 target_id: (
+                    device.id,
                     getattr(target_result, field_name).loss_rate,
                     getattr(target_result, field_name).average_latency_ms,
                 )
@@ -398,10 +403,15 @@ def save_probe_result(request: ProbeResultRequest) -> None:
             return
 
         for state_model, incoming_values, _ in protocol_states:
-            for target_id, (loss_rate, rtt_ms) in incoming_values.items():
+            for target_id, (
+                device_related_id,
+                loss_rate,
+                rtt_ms,
+            ) in incoming_values.items():
                 session.add(
                     state_model(
                         time_id=request.unix_timestamp,
+                        device_related_id=device_related_id,
                         source_ip_id=source.id,
                         target_ip_id=target_id,
                         probe_mode=mode_code,
@@ -474,7 +484,7 @@ def _build_template_messages(
 
 
 async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
-    """校验、幂等保存并发送自然分钟聚合丢包告警。
+    """按上报设备校验、幂等保存并发送自然分钟聚合丢包告警。
 
     参数:
         request: Agent 上报的自然分钟聚合丢包告警。
@@ -504,20 +514,21 @@ async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
                 f"{alert.probe_mode} {alert.protocol_type} 分钟丢包: "
                 f"{alert.source_ip} -> {alert.target_ip}"
             )
-            session.add(
-                AlertEvent(
-                    event_id=alert.event_id,
-                    source_ip_id=source.id,
-                    target_ip_id=target.id,
-                    protocol_type=PROTOCOL_CODES[alert.protocol_type],
-                    probe_mode=PROBE_MODE_CODES[alert.probe_mode],
-                    occurred_at=alert.unix_timestamp,
-                    message=message,
-                )
+            event = AlertEvent(
+                event_id=alert.event_id,
+                device_related_id=device.id,
+                source_ip_id=source.id,
+                target_ip_id=target.id,
+                protocol_type=PROTOCOL_CODES[alert.protocol_type],
+                probe_mode=PROBE_MODE_CODES[alert.probe_mode],
+                occurred_at=alert.unix_timestamp,
+                message=message,
             )
-            if device.user_id is None:
+            session.add(event)
+            related_device = session.get(Device, event.device_related_id)
+            if related_device is None or related_device.user_id is None:
                 continue
-            user = session.get(User, device.user_id)
+            user = session.get(User, related_device.user_id)
             if user is None:
                 continue
             openid = user.openid

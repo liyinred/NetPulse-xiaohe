@@ -22,6 +22,11 @@ class AlertEvent(Base):
     )
 
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    device_related_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("devices.id"),
+        nullable=False,
+    )
     source_ip_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("ip_dict.id"),

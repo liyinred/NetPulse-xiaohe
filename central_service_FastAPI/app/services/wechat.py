@@ -17,7 +17,7 @@ WECHAT_QRCODE_IMAGE_URL = "https://mp.weixin.qq.com/cgi-bin/showqrcode"
 WECHAT_TEMPLATE_MESSAGE_URL = (
     "https://api.weixin.qq.com/cgi-bin/message/template/send"
 )
-PROBE_ALERT_TEMPLATE_ID = "O-GGfJtwz_5biXaKHjBfADGcIaHrdI4TT3Ajg3a6tDI"
+PROBE_ALERT_TEMPLATE_ID = "qRLXg-PmslNWWpScb6zMV79jYlsbh7Hz-fgUuw-DbOE"
 QRCODE_EXPIRE_SECONDS = 5 * 60
 ACCESS_TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
 WECHAT_API_TIMEOUT_SECONDS = 10.0

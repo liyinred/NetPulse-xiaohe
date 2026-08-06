@@ -10,6 +10,11 @@ class ProbeStateMixin:
     """复用三种协议探测状态表的公共字段。"""
 
     time_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    device_related_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("devices.id"),
+        nullable=False,
+    )
     source_ip_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("ip_dict.id"),
