@@ -110,7 +110,8 @@ async def lookup_network(
     参数:
         public_ip: 要识别归属信息的公网 IPv4 或 IPv6。
     返回:
-        包含公网 IP、省份、城市、运营商展示名称和归一化编码的网络信息。
+        包含公网 IP、省份、城市、运营商展示名称和归一化编码的网络信息；
+        查询结果未提供城市时，城市为空字符串。
     """
     prefix_length = 24 if public_ip.version == 4 else 48
     cidr = ip_network(f"{public_ip}/{prefix_length}", strict=False)
@@ -131,7 +132,8 @@ async def lookup_network(
         payload["data"], public_ip
     )
     province_name = validate_network_value(province_name, "省份")
-    city_name = validate_network_value(city_name, "城市")
+    if city_name:
+        city_name = validate_network_value(city_name, "城市")
     isp_name = validate_network_value(isp_name, "运营商")
     province = normalize_province(province_name)
     if province == 1:

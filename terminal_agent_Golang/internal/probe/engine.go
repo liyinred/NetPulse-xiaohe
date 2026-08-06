@@ -297,18 +297,25 @@ func (engine *Engine) printWindowResults(
 			}
 			for _, protocol := range protocols {
 				summary := summarize(protocol.stats)
-				latencyDisplay := fmt.Sprintf("%d ms", summary.AverageLatencyMS)
 				if protocol.stats.succeeded == 0 {
-					latencyDisplay = "超时"
+					fmt.Fprintf(
+						engine.output,
+						"  %s: 成功 %d/%d，丢包率 %.1f%%，超时\n",
+						protocol.name,
+						protocol.stats.succeeded,
+						protocol.stats.attempted,
+						float64(summary.LossRate)/10,
+					)
+					continue
 				}
 				fmt.Fprintf(
 					engine.output,
-					"  %s: 成功 %d/%d，丢包率 %.1f%%，平均延迟 %s\n",
+					"  %s: 成功 %d/%d，丢包率 %.1f%%，平均延迟 %d ms\n",
 					protocol.name,
 					protocol.stats.succeeded,
 					protocol.stats.attempted,
 					float64(summary.LossRate)/10,
-					latencyDisplay,
+					summary.AverageLatencyMS,
 				)
 			}
 		}
