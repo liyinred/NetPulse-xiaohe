@@ -81,7 +81,7 @@ export const SETTING_DEFAULT_CONFIG = {
   /** 自定义圆角 */
   customRadius: '0.75',
   /** 容器宽度 */
-  containerWidth: ContainerWidthEnum.FULL,
+  containerWidth: ContainerWidthEnum.BOXED,
   /** 节日日期 */
   festivalDate: ''
 }

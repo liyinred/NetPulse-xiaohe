@@ -15,6 +15,10 @@ class User(Base):
             "alert_type IN (1, 2, 3)",
             name="ck_users_alert_type",
         ),
+        CheckConstraint(
+            "user_level IN (1, 2, 9)",
+            name="ck_users_user_level",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -26,6 +30,9 @@ class User(Base):
     )
     subscribe_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     alert_type: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+    user_level: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
     )
     created_time: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

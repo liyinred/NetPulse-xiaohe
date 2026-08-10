@@ -19,7 +19,7 @@
  * ## 持久化
  *
  * - 使用 localStorage 存储
- * - 存储键：sys-v{version}-table
+ * - 存储键：sys-v{version}-table-v2
  * - 用户配置跨页面保持
  *
  * @module store/modules/table
@@ -36,11 +36,11 @@ export const useTableStore = defineStore(
     // 表格大小
     const tableSize = ref(TableSizeEnum.DEFAULT)
     // 斑马纹
-    const isZebra = ref(false)
+    const isZebra = ref(true)
     // 边框
     const isBorder = ref(false)
     // 表头背景
-    const isHeaderBackground = ref(false)
+    const isHeaderBackground = ref(true)
 
     // 是否全屏
     const isFullScreen = ref(false)
@@ -90,7 +90,7 @@ export const useTableStore = defineStore(
   },
   {
     persist: {
-      key: 'table',
+      key: 'table-v2',
       storage: localStorage
     }
   }

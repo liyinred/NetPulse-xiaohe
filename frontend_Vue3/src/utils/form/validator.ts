@@ -10,7 +10,7 @@
  * - 用户账号验证（字母开头，支持数字和下划线）
  * - 密码强度验证（普通密码、强密码）
  * - 密码强度评估（弱、中、强）
- * - IPv4 地址验证
+ * - IPv4/IPv6 地址验证
  * - 邮箱地址验证（RFC 5322 标准）
  * - URL 地址验证
  * - 身份证号码验证（18位，含校验码验证）
@@ -192,19 +192,54 @@ export function validateIPv4Address(value: string): boolean {
     return false
   }
 
-  const trimmedValue = value.trim()
-  const ipRegex = /^((25[0-5]|2[0-4]\d|[01]?\d{1,2})\.){3}(25[0-5]|2[0-4]\d|[01]?\d{1,2})$/
+  const segments = value.trim().split('.')
+  if (segments.length !== 4) return false
+  return segments.every((segment) => {
+    if (!/^(0|[1-9]\d{0,2})$/.test(segment)) return false
+    return Number(segment) <= 255
+  })
+}
 
-  if (!ipRegex.test(trimmedValue)) {
+/**
+ * 验证IPv6地址
+ * @param value IP地址字符串
+ * @returns 返回验证结果，true表示格式正确
+ */
+export function validateIPv6Address(value: string): boolean {
+  if (!value || typeof value !== 'string') return false
+
+  let normalizedValue = value.trim()
+  if (!normalizedValue.includes(':') || normalizedValue.includes('%')) return false
+  if (
+    (normalizedValue.startsWith(':') && !normalizedValue.startsWith('::')) ||
+    (normalizedValue.endsWith(':') && !normalizedValue.endsWith('::'))
+  ) {
     return false
   }
 
-  // 额外检查每个段是否在有效范围内
-  const segments = trimmedValue.split('.')
-  return segments.every((segment) => {
-    const num = parseInt(segment, 10)
-    return num >= 0 && num <= 255
-  })
+  if (normalizedValue.includes('.')) {
+    const lastColonIndex = normalizedValue.lastIndexOf(':')
+    const ipv4Segment = normalizedValue.slice(lastColonIndex + 1)
+    if (lastColonIndex < 0 || !validateIPv4Address(ipv4Segment)) return false
+    normalizedValue = `${normalizedValue.slice(0, lastColonIndex)}:0:0`
+  }
+
+  const compressionIndex = normalizedValue.indexOf('::')
+  const hasCompression = compressionIndex >= 0
+  if (hasCompression && compressionIndex !== normalizedValue.lastIndexOf('::')) return false
+
+  const segments = normalizedValue.split(':').filter(Boolean)
+  if (!segments.every((segment) => /^[0-9a-fA-F]{1,4}$/.test(segment))) return false
+  return hasCompression ? segments.length < 8 : segments.length === 8
+}
+
+/**
+ * 验证标准IPv4或IPv6地址
+ * @param value IP地址字符串
+ * @returns 返回验证结果，true表示任一地址格式正确
+ */
+export function validateIPAddress(value: string): boolean {
+  return validateIPv4Address(value) || validateIPv6Address(value)
 }
 
 /**

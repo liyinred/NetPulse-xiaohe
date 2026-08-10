@@ -48,7 +48,7 @@
     },
     containerWidth: {
       '100%': 'ContainerWidthEnum.FULL',
-      '1200px': 'ContainerWidthEnum.BOXED'
+      '1280px': 'ContainerWidthEnum.BOXED'
     }
   } as const
 

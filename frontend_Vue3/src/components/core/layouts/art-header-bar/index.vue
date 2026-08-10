@@ -6,9 +6,7 @@
       tabStyle === 'tab-card' || tabStyle === 'tab-google' ? 'mb-5 max-sm:mb-3 !bg-box' : ''
     ]"
   >
-    <div
-      class="relative box-border flex-b h-15 leading-15 select-none border-b border-[var(--art-card-border)]"
-    >
+    <div class="relative box-border flex-b h-15 leading-15 select-none">
       <div class="flex-c flex-1 min-w-0 leading-15" style="display: flex">
         <!-- 系统信息  -->
         <div class="flex-c c-p" @click="toHome" v-if="isTopMenu">

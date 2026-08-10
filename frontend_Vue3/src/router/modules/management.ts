@@ -7,7 +7,7 @@ export const managementRoutes: AppRouteRecord[] = [
   {
     path: '/ip-management',
     name: 'IpManagement',
-    component: '/detection/blank',
+    component: '/system/ip-management',
     meta: {
       title: 'IP管理',
       icon: 'ri:server-line'
@@ -16,7 +16,7 @@ export const managementRoutes: AppRouteRecord[] = [
   {
     path: '/user-management',
     name: 'UserManagement',
-    component: '/detection/blank',
+    component: '/system/user',
     meta: {
       title: '用户管理',
       icon: 'ri:user-settings-line'

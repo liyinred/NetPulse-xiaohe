@@ -77,5 +77,5 @@ export enum ContainerWidthEnum {
   /** 全屏宽度 */
   FULL = '100%',
   /** 固定宽度 */
-  BOXED = '1200px'
+  BOXED = '1280px'
 }

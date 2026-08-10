@@ -43,10 +43,14 @@ declare namespace Api {
       size: number
       /** 总条数 */
       total: number
+      /** 排序字段 */
+      sortField?: string
+      /** 排序方向 */
+      sortOrder?: 'asc' | 'desc'
     }
 
     /** 通用搜索参数 */
-    type CommonSearchParams = Pick<PaginationParams, 'current' | 'size'>
+    type CommonSearchParams = Pick<PaginationParams, 'current' | 'size' | 'sortField' | 'sortOrder'>
 
     /** 分页响应基础结构 */
     interface PaginatedResponse<T = any> {
@@ -89,30 +93,55 @@ declare namespace Api {
 
   /** 系统管理类型 */
   namespace SystemManage {
+    /** IP 列表 */
+    type IPList = Api.Common.PaginatedResponse<IPListItem>
+
+    /** IP 列表项 */
+    interface IPListItem {
+      id: number
+      ip: string
+      ipVersion: number
+      publicStatus: 0 | 1
+      isp: number | null
+      ispName: string
+      province: number | null
+      provinceName: string
+      city: string | null
+      updateTime: number
+    }
+
+    /** IP 搜索参数 */
+    type IPSearchParams = Partial<
+      Pick<IPListItem, 'ip' | 'ipVersion' | 'isp' | 'province' | 'city' | 'publicStatus'> &
+        Api.Common.CommonSearchParams
+    >
+
+    /** IP 新增或刷新请求 */
+    interface IPUpsertParams {
+      ip: string
+      publicStatus: 0 | 1
+    }
+
+    /** IP 公开状态修改请求 */
+    interface IPPublicStatusUpdateParams {
+      publicStatus: 0 | 1
+    }
+
     /** 用户列表 */
     type UserList = Api.Common.PaginatedResponse<UserListItem>
 
     /** 用户列表项 */
     interface UserListItem {
       id: number
-      avatar: string
-      status: string
-      userName: string
-      userGender: string
-      nickName: string
-      userPhone: string
-      userEmail: string
-      userRoles: string[]
-      createBy: string
-      createTime: string
-      updateBy: string
-      updateTime: string
+      openid: string | null
+      userLevel: number
+      subscribeStatus: number | null
+      createdTime: number | null
     }
 
     /** 用户搜索参数 */
     type UserSearchParams = Partial<
-      Pick<UserListItem, 'id' | 'userName' | 'userGender' | 'userPhone' | 'userEmail' | 'status'> &
-        Api.Common.CommonSearchParams
+      Pick<UserListItem, 'openid' | 'userLevel' | 'subscribeStatus'> & Api.Common.CommonSearchParams
     >
 
     /** 角色列表 */
