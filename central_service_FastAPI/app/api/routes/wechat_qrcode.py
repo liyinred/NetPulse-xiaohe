@@ -4,14 +4,11 @@ import secrets
 import string
 from datetime import datetime
 from ipaddress import IPv4Address, IPv6Address
-from time import time
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.db.session import SessionLocal
-from app.models.user import User
 from app.schemas.device import build_device_network_info
 from app.schemas.wechat import QRCodeResponse, QRCodeStatusResponse
 from app.services.device import bind_device_by_scene
@@ -44,7 +41,7 @@ def generate_scene_str() -> str:
 
 @router.post("/qrcode", response_model=QRCodeResponse)
 async def create_parameterized_qrcode() -> QRCodeResponse:
-    """生成并记录有效期为 5 分钟的微信带参数二维码。
+    """生成有效期为 5 分钟的微信带参数二维码。
 
     参数:
         无。
@@ -63,17 +60,6 @@ async def create_parameterized_qrcode() -> QRCodeResponse:
         raise HTTPException(status_code=502, detail="微信二维码响应缺少 url")
     if not isinstance(expire_seconds, int) or expire_seconds <= 0:
         raise HTTPException(status_code=502, detail="微信二维码有效期无效")
-
-    current_time = int(time())
-    with SessionLocal.begin() as session:
-        session.add(
-            User(
-                scene_str=scene_str,
-                subscribe_status=0,
-                created_time=current_time,
-                updated_time=current_time,
-            )
-        )
 
     image_url = f"{WECHAT_QRCODE_IMAGE_URL}?{urlencode({'ticket': ticket})}"
     return QRCodeResponse(

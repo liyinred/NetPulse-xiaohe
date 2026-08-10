@@ -44,6 +44,10 @@ type publicIPResponse struct {
 	PublicIP string `json:"public_ip"`
 }
 
+type deviceExistsResponse struct {
+	Exists bool `json:"exists"`
+}
+
 // BindingInfo 保存中央服务确认绑定后的设备网络信息。
 type BindingInfo struct {
 	DeviceID     string  `json:"device_id"`
@@ -137,6 +141,30 @@ func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
 		return netip.Addr{}, errors.New("公网 IPv6 服务返回的地址无效")
 	}
 	return publicIP, nil
+}
+
+// DeviceExists 查询设备标识是否已存在于中央服务数据库。
+//
+// 参数:
+//   - ctx: 控制请求取消的 Context。
+//   - deviceID: Agent 本地配置中的设备标识。
+//
+// 返回值: 设备存在时返回 True，不存在时返回 False；请求失败时返回错误。
+func (backend *Backend) DeviceExists(
+	ctx context.Context,
+	deviceID string,
+) (bool, error) {
+	endpoint := backend.baseURL + "/devices/" + url.PathEscape(deviceID) + "/exists"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, errors.New("创建设备标识校验请求失败: 请求地址无效")
+	}
+
+	var response deviceExistsResponse
+	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+		return false, fmt.Errorf("校验设备标识失败: %w", err)
+	}
+	return response.Exists, nil
 }
 
 // getPublicIP 请求并校验指定版本的公网地址。

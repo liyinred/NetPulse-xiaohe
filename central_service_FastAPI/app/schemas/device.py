@@ -39,6 +39,12 @@ class DeviceBindResponse(DeviceNetworkInfo):
     id: int
 
 
+class DeviceExistsResponse(BaseModel):
+    """设备标识存在性查询结果。"""
+
+    exists: bool
+
+
 class PublicIPAddressResponse(BaseModel):
     """中央服务观察到的公网 IPv4。"""
 

@@ -30,6 +30,20 @@ class DeviceBindingResult:
     source_ipv6: IPv6Address | None
 
 
+def device_exists(device_id: str) -> bool:
+    """检查设备标识是否已存在于数据库。
+
+    参数:
+        device_id: Agent 本地持久化的设备标识。
+    返回:
+        找到对应设备时返回 True，否则返回 False。
+    """
+    with SessionLocal() as session:
+        return session.scalar(
+            select(Device.id).where(Device.device_id == device_id)
+        ) is not None
+
+
 def _find_scene_user_id(
     session: Session,
     scene_str: str,

@@ -1,17 +1,32 @@
-"""设备绑定路由。"""
+"""设备查询与绑定路由。"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path
 
 from app.schemas.device import (
     DeviceBindRequest,
     DeviceBindResponse,
+    DeviceExistsResponse,
     build_device_network_info,
 )
-from app.services.device import bind_device_by_scene
+from app.services.device import bind_device_by_scene, device_exists
 from app.services.network import IPLookupError
 
 
 router = APIRouter(prefix="/devices", tags=["设备"])
+
+
+@router.get("/{device_id}/exists", response_model=DeviceExistsResponse)
+def get_device_existence(
+    device_id: str = Path(..., min_length=1, max_length=64),
+) -> DeviceExistsResponse:
+    """查询指定设备标识是否已存在。
+
+    参数:
+        device_id: Agent 本地持久化的设备标识。
+    返回:
+        包含设备是否存在的查询结果。
+    """
+    return DeviceExistsResponse(exists=device_exists(device_id))
 
 
 @router.post("/bind", response_model=DeviceBindResponse)

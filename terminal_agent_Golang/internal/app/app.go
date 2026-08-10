@@ -47,8 +47,17 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		fmt.Fprintf(output, "已创建配置文件: %s\n", configPath)
 	}
 
+	backend := client.NewBackend(backendBaseURL, requestTimeout)
 	deviceID := agentConfig.DeviceID()
-	if deviceID == "" {
+	needsNewDeviceID := deviceID == ""
+	if !needsNewDeviceID {
+		exists, validationErr := backend.DeviceExists(ctx, deviceID)
+		if validationErr != nil {
+			return fmt.Errorf("验证本地 device_id 失败: %w", validationErr)
+		}
+		needsNewDeviceID = !exists
+	}
+	if needsNewDeviceID {
 		deviceID, err = generateDeviceID()
 		if err != nil {
 			return err
@@ -59,7 +68,6 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 
-	backend := client.NewBackend(backendBaseURL, requestTimeout)
 	sourceIPv4, err := waitForPublicIPv4(ctx, output, backend)
 	if err != nil {
 		return err
@@ -79,7 +87,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintln(output, "请使用微信扫描二维码完成设备绑定更新，正在等待确认...")
+	fmt.Fprintln(output, "请使用微信扫码关注服务号，正在等待确认...")
 	bindingInfo, err := backend.WaitForLogin(
 		ctx,
 		qrCode.SceneString,

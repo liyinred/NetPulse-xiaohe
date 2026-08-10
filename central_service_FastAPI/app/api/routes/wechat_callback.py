@@ -214,7 +214,7 @@ def update_subscription_user(session: Session, message: dict[str, str]) -> bool:
     if subscribe_status is None:
         return False
 
-    openid = message.get("FromUserName", "")
+    openid = message.get("FromUserName", "").strip()
     if not openid or len(openid) > MAX_OPENID_LENGTH:
         raise ValueError("关注状态事件缺少有效的 FromUserName")
 
