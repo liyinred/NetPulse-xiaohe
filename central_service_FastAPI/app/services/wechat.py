@@ -1,6 +1,9 @@
 """微信服务号 API 调用服务。"""
 
 import asyncio
+import base64
+import secrets
+import struct
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -21,10 +24,45 @@ PROBE_ALERT_TEMPLATE_ID = "qRLXg-PmslNWWpScb6zMV79jYlsbh7Hz-fgUuw-DbOE"
 QRCODE_EXPIRE_SECONDS = 5 * 60
 ACCESS_TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
 WECHAT_API_TIMEOUT_SECONDS = 10.0
+SCENE_PAYLOAD_BYTES = 12
 
 _access_token = ""
 _access_token_expires_at = 0.0
 _access_token_lock = asyncio.Lock()
+
+
+def generate_scene_str() -> str:
+    """生成包含创建时间和随机值的 16 字符二维码场景值。
+
+    参数:
+        无。
+    返回:
+        URL-safe Base64 编码的微信二维码 scene_str。
+    """
+    timestamp_bytes = struct.pack(">I", int(time.time()))
+    scene_bytes = timestamp_bytes + secrets.token_bytes(8)
+    return base64.urlsafe_b64encode(scene_bytes).decode("ascii").rstrip("=")
+
+
+def get_scene_created_at(scene_str: str) -> int | None:
+    """从二维码场景值中解析创建时间。
+
+    参数:
+        scene_str: 16 字符 URL-safe Base64 场景值。
+    返回:
+        创建时的 Unix 时间戳；格式无效时返回 None。
+    """
+    try:
+        scene_bytes = base64.b64decode(
+            scene_str,
+            altchars=b"-_",
+            validate=True,
+        )
+    except (ValueError, base64.binascii.Error):
+        return None
+    if len(scene_bytes) != SCENE_PAYLOAD_BYTES:
+        return None
+    return struct.unpack(">I", scene_bytes[:4])[0]
 
 
 @dataclass(frozen=True)

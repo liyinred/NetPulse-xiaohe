@@ -1,11 +1,7 @@
 """微信带参数二维码路由。"""
 
-import secrets
-import string
-from datetime import datetime
 from ipaddress import IPv4Address, IPv6Address
 from urllib.parse import urlencode
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -16,28 +12,10 @@ from app.services.network import IPLookupError
 from app.services.wechat import (
     WECHAT_QRCODE_IMAGE_URL,
     create_qrcode,
+    generate_scene_str,
 )
 
-
-SCENE_RANDOM_CHARACTERS = string.ascii_uppercase + string.digits
-
 router = APIRouter(prefix="/wechat", tags=["微信"])
-
-
-def generate_scene_str() -> str:
-    """生成北京时间戳与随机字符组成的场景值。
-
-    参数:
-        无。
-    返回:
-        16 位微信二维码字符串场景值。
-    """
-    timestamp = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%y%m%d%H%M%S")
-    random_suffix = "".join(
-        secrets.choice(SCENE_RANDOM_CHARACTERS) for _ in range(4)
-    )
-    return timestamp + random_suffix
-
 
 @router.post("/qrcode", response_model=QRCodeResponse)
 async def create_parameterized_qrcode() -> QRCodeResponse:

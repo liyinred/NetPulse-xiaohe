@@ -30,6 +30,10 @@ WECHAT_ENCODING_AES_KEY = get_required_setting("WECHAT_ENCODING_AES_KEY")
 WECHAT_APP_ID = get_required_setting("WECHAT_APP_ID")
 WECHAT_APP_SECRET = get_required_setting("WECHAT_APP_SECRET")
 IP_LOOKUP_API_KEY = get_required_setting("IP_LOOKUP_API_KEY")
+JWT_SECRET_KEY = get_required_setting("JWT_SECRET_KEY")
+JWT_EXPIRE_MINUTES = int(get_required_setting("JWT_EXPIRE_MINUTES"))
+if JWT_EXPIRE_MINUTES <= 0:
+    raise RuntimeError("JWT_EXPIRE_MINUTES 必须为正整数")
 
 MYSQL_HOST = get_required_setting("MYSQL_HOST")
 MYSQL_PORT = int(get_required_setting("MYSQL_PORT"))

@@ -1,10 +1,8 @@
 """设备绑定与网络地址持久化服务。"""
 
 from dataclasses import dataclass
-from datetime import datetime
 from ipaddress import IPv4Address, IPv6Address
 from time import time
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,10 +12,7 @@ from app.models.device import Device
 from app.models.ip_dict import IPDict
 from app.models.user import User
 from app.services.network import NetworkInfo, lookup_network
-from app.services.wechat import QRCODE_EXPIRE_SECONDS
-
-
-QRCODE_TIMESTAMP_FORMAT = "%y%m%d%H%M%S"
+from app.services.wechat import QRCODE_EXPIRE_SECONDS, get_scene_created_at
 
 
 @dataclass(frozen=True)
@@ -44,7 +39,7 @@ def device_exists(device_id: str) -> bool:
         ) is not None
 
 
-def _find_scene_user_id(
+def find_scene_user_id(
     session: Session,
     scene_str: str,
     current_time: int,
@@ -58,14 +53,10 @@ def _find_scene_user_id(
     返回:
         有效场景用户的内部主键；不存在时返回 None。
     """
-    try:
-        scene_time = datetime.strptime(
-            scene_str[:12],
-            QRCODE_TIMESTAMP_FORMAT,
-        ).replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-    except ValueError:
+    scene_created_at = get_scene_created_at(scene_str)
+    if scene_created_at is None:
         return None
-    scene_age = current_time - int(scene_time.timestamp())
+    scene_age = current_time - scene_created_at
     if scene_age < 0 or scene_age > QRCODE_EXPIRE_SECONDS:
         return None
 
@@ -174,14 +165,14 @@ async def bind_device_by_scene(
     """
     current_time = int(time())
     with SessionLocal() as session:
-        user_id = _find_scene_user_id(session, scene_str, current_time)
+        user_id = find_scene_user_id(session, scene_str, current_time)
     if user_id is None:
         return None
 
     network_info = await lookup_network(source_ipv4)
     current_time = int(time())
     with SessionLocal.begin() as session:
-        current_user_id = _find_scene_user_id(session, scene_str, current_time)
+        current_user_id = find_scene_user_id(session, scene_str, current_time)
         if current_user_id != user_id:
             return None
         device = _persist_device_binding(
