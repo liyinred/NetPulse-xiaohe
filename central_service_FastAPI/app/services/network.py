@@ -253,3 +253,20 @@ def format_probe_node_name(
     province_name = PROVINCE_NAMES.get(province, "未知")
     isp_name = ISP_NAMES.get(isp, "未知")
     return f"{province_name}{isp_name}"
+
+
+def format_probe_node_label(
+    province: int | None,
+    isp: int | None,
+    ip: str,
+) -> str:
+    """将 IP 归属信息和地址格式化为节点展示标签。
+
+    参数:
+        province: IP 字典中的省份编码。
+        isp: IP 字典中的运营商编码。
+        ip: 节点 IP 地址。
+    返回:
+        采用“省份运营商节点[IP]”格式的展示标签。
+    """
+    return f"{format_probe_node_name(province, isp)}节点[{ip}]"

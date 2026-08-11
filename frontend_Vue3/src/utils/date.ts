@@ -16,3 +16,12 @@ export function formatBeijingTime(timestamp: number | null): string {
     hourCycle: 'h23'
   }).format(new Date(timestamp * 1000))
 }
+
+/**
+ * 将 Unix 秒时间戳格式化为曲线横轴使用的北京时间。
+ * @param timestamp Unix 秒时间戳。
+ * @returns YY-MM-DD HH:MM 格式的北京时间。
+ */
+export function formatBeijingMinute(timestamp: number): string {
+  return formatBeijingTime(timestamp).slice(2, 16)
+}

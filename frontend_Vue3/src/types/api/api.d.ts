@@ -91,6 +91,56 @@ declare namespace Api {
     }
   }
 
+  /** 探测趋势类型 */
+  namespace Detection {
+    /** 探测模式 */
+    type ProbeMode = 1 | 2
+
+    /** 查询时间范围 */
+    type ProbeRangeType = '1d' | '2d' | '7d' | 'month'
+
+    /** 探测协议 */
+    type ProtocolType = 'icmp' | 'tcp' | 'udp'
+
+    /** 当前用户关联的探测源节点 */
+    interface ProbeNode {
+      id: number
+      ip: string
+      label: string
+    }
+
+    /** 单个自然分钟的聚合探测值 */
+    interface ProbeTrendPoint {
+      timeId: number
+      lossRate: number
+      averageLatencyMs: number
+    }
+
+    /** 单个目标 IP 的探测趋势 */
+    interface ProbeTrendSeries {
+      targetIpId: number
+      targetIp: string
+      label: string
+      points: ProbeTrendPoint[]
+    }
+
+    /** 探测趋势查询参数 */
+    interface ProbeTrendParams {
+      sourceIpId: number
+      probeMode: ProbeMode
+      protocolType: ProtocolType
+      rangeType: ProbeRangeType
+      month?: string
+    }
+
+    /** 探测趋势查询结果 */
+    interface ProbeTrendData {
+      startTime: number
+      endTime: number
+      series: ProbeTrendSeries[]
+    }
+  }
+
   /** 系统管理类型 */
   namespace SystemManage {
     /** IP 列表 */

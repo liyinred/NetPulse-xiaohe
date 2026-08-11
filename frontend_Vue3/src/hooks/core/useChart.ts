@@ -55,12 +55,21 @@ import { useSettingStore } from '@/store/modules/setting'
 import { getCssVar } from '@/utils/ui'
 import type { BaseChartProps, ChartThemeConfig, UseChartOptions } from '@/types/component/chart'
 
-// 图表主题配置
+/**
+ * 获取图表共享主题配置。
+ * @returns 图表尺寸、字体、线宽和颜色组配置。
+ */
 export const useChartOps = (): ChartThemeConfig => ({
   /** */
   chartHeight: '16rem',
   /** 字体大小 */
   fontSize: 13,
+  /** 紧凑字体大小 */
+  smallFontSize: 12,
+  /** 默认折线宽度 */
+  lineWidth: 2.5,
+  /** 细折线宽度 */
+  thinLineWidth: 1.5,
   /** 字体颜色 */
   fontColor: '#999',
   /** 主题颜色 */
@@ -74,6 +83,73 @@ export const useChartOps = (): ChartThemeConfig => ({
     '#FFAF20',
     '#FA8A6C',
     '#FFAF20'
+  ],
+  /** glasbey_light 高区分度分类颜色组（前 64 色） */
+  categoricalColors: [
+    '#D70000',
+    '#028800',
+    '#B600FF',
+    '#06ACC6',
+    '#98FF00',
+    '#FFA530',
+    '#FF8FC8',
+    '#79525F',
+    '#00FECF',
+    '#B0A5FF',
+    '#94AD84',
+    '#9A6900',
+    '#376A62',
+    '#D3008C',
+    '#FEF590',
+    '#C86F66',
+    '#9EE3FF',
+    '#00C946',
+    '#A977AD',
+    '#B8BB02',
+    '#F4C0B1',
+    '#FF28FD',
+    '#F3CEFF',
+    '#009F7D',
+    '#FF6200',
+    '#56652B',
+    '#963F1F',
+    '#91318F',
+    '#FF3465',
+    '#A0E492',
+    '#8D9BB2',
+    '#829126',
+    '#AE093F',
+    '#78C7BB',
+    '#BC9258',
+    '#E58FFF',
+    '#72B9FF',
+    '#C6A5C1',
+    '#FF9171',
+    '#D3C37D',
+    '#BDEEDB',
+    '#6B8568',
+    '#926E56',
+    '#F9FF00',
+    '#BAC2E0',
+    '#AD577D',
+    '#FFCE03',
+    '#FF4AB1',
+    '#C25703',
+    '#5D8C90',
+    '#C244BD',
+    '#007540',
+    '#BA6FFE',
+    '#00D494',
+    '#00FF76',
+    '#49A251',
+    '#CC9891',
+    '#00EBEE',
+    '#DB7E01',
+    '#F8758A',
+    '#B99600',
+    '#C94248',
+    '#00D0FA',
+    '#765827'
   ]
 })
 
@@ -268,29 +344,46 @@ export function useChart(options: UseChartOptions = {}) {
     animationEasing: 'quarticOut' as const
   })
 
-  // 获取统一的 tooltip 配置
-  const getTooltipStyle = (trigger: 'item' | 'axis' = 'axis', customOptions: any = {}) => ({
-    trigger,
-    backgroundColor: isDark.value ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.9)',
-    borderColor: isDark.value ? '#333' : '#ddd',
-    borderWidth: 1,
-    textStyle: {
-      color: isDark.value ? '#fff' : '#333'
-    },
-    ...customOptions
-  })
+  /**
+   * 获取统一的 tooltip 配置并合并自定义文字样式。
+   * @param trigger tooltip 触发方式。
+   * @param customOptions 要覆盖的 ECharts tooltip 配置。
+   * @returns 适配当前主题的 tooltip 配置。
+   */
+  const getTooltipStyle = (trigger: 'item' | 'axis' = 'axis', customOptions: any = {}) => {
+    const { textStyle: customTextStyle, ...remainingOptions } = customOptions
+    return {
+      trigger,
+      backgroundColor: isDark.value ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.9)',
+      borderColor: isDark.value ? '#333' : '#ddd',
+      borderWidth: 1,
+      ...remainingOptions,
+      textStyle: {
+        color: isDark.value ? '#fff' : '#333',
+        ...customTextStyle
+      }
+    }
+  }
 
-  // 获取统一的图例配置
+  /**
+   * 获取统一的图例配置，并使图标与文字垂直居中。
+   * @param position 图例显示位置。
+   * @param customOptions 要覆盖的 ECharts legend 配置。
+   * @returns 适配当前主题的 legend 配置。
+   */
   const getLegendStyle = (
     position: 'bottom' | 'top' | 'left' | 'right' = 'bottom',
     customOptions: any = {}
   ) => {
+    const legendItemSize = 12
     const baseConfig = {
       textStyle: {
-        color: isDark.value ? '#fff' : '#333'
+        color: isDark.value ? '#fff' : '#333',
+        lineHeight: legendItemSize,
+        verticalAlign: 'middle'
       },
-      itemWidth: 12,
-      itemHeight: 12,
+      itemWidth: legendItemSize,
+      itemHeight: legendItemSize,
       itemGap: 20,
       ...customOptions
     }

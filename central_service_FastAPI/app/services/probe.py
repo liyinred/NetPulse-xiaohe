@@ -21,13 +21,23 @@ from app.models.probe_state import (
 from app.models.user import User
 from app.schemas.probe import (
     ProbeAlertsRequest,
+    ProbeNodeItem,
+    ProbeRangeType,
     ProbeResultRequest,
     ProbeTarget,
     ProbeTargetsRequest,
     ProbeTargetsResponse,
+    ProbeTrendData,
+    ProbeTrendPoint,
+    ProbeTrendSeries,
+    ProtocolType,
 )
 from app.services.device import _upsert_ip_record
-from app.services.network import format_probe_node_name, lookup_network
+from app.services.network import (
+    format_probe_node_label,
+    format_probe_node_name,
+    lookup_network,
+)
 from app.services.wechat import TemplateMessage, send_template_messages
 
 
@@ -35,6 +45,12 @@ PROBE_MODE_CODES = {"cross_isp": 1, "cross_province": 2}
 PROTOCOL_CODES = {"icmp": 1, "tcp": 2, "udp": 3}
 PROBE_MODE_NAMES = {"cross_isp": "异网", "cross_province": "跨省"}
 ALERT_TIME_ZONE = ZoneInfo("Asia/Shanghai")
+PROBE_RANGE_DAYS = {"1d": 1, "2d": 2, "7d": 7}
+PROBE_STATE_MODELS = {
+    "icmp": ICMPProbeState,
+    "tcp": TCPProbeState,
+    "udp": UDPProbeState,
+}
 
 
 @dataclass
@@ -360,13 +376,8 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                 raise ValueError("targets 包含重复 IP")
             target_results[target.id] = target_result
 
-        state_models = (
-            ("icmp", ICMPProbeState),
-            ("tcp", TCPProbeState),
-            ("udp", UDPProbeState),
-        )
         protocol_states = []
-        for field_name, state_model in state_models:
+        for field_name, state_model in PROBE_STATE_MODELS.items():
             existing_rows = session.scalars(
                 select(state_model).where(
                     state_model.time_id == request.unix_timestamp,
@@ -419,6 +430,165 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                         rtt_ms=rtt_ms,
                     )
                 )
+
+
+def list_user_probe_nodes(user_id: int) -> list[ProbeNodeItem]:
+    """查询当前用户关联设备的全部源 IP 节点。
+
+    参数:
+        user_id: 当前登录用户的内部主键。
+    返回:
+        按 IP 版本和地址排序的探测节点列表。
+    """
+    with SessionLocal() as session:
+        records = session.execute(
+            select(IPDict.id, IPDict.ip, IPDict.province, IPDict.isp)
+            .join(Device, IPDict.device_related_id == Device.id)
+            .where(Device.user_id == user_id)
+            .order_by(IPDict.ip_version, IPDict.ip)
+        ).all()
+    return [
+        ProbeNodeItem(
+            id=record.id,
+            ip=record.ip,
+            label=format_probe_node_label(
+                record.province,
+                record.isp,
+                record.ip,
+            ),
+        )
+        for record in records
+    ]
+
+
+def _resolve_probe_time_range(
+    range_type: ProbeRangeType,
+    month: str | None,
+    current_time: int,
+) -> tuple[int, int]:
+    """将预设范围或北京时间月份转换为闭区间 Unix 分钟时间戳。
+
+    参数:
+        range_type: 最近 1、2、7 天或月份范围。
+        month: 月份范围使用的 YYYY-MM 字符串。
+        current_time: 当前 Unix 秒时间戳。
+    返回:
+        起止自然分钟时间戳组成的闭区间。
+    """
+    current_minute = current_time - current_time % 60
+    if range_type != "month":
+        return (
+            current_minute - PROBE_RANGE_DAYS[range_type] * 86400 + 60,
+            current_minute,
+        )
+    if month is None:
+        raise ValueError("月份范围必须提供 month")
+    try:
+        month_start = datetime.strptime(month, "%Y-%m").replace(
+            tzinfo=ALERT_TIME_ZONE
+        )
+    except ValueError as exc:
+        raise ValueError("month 必须使用 YYYY-MM 格式") from exc
+
+    current_month = datetime.fromtimestamp(
+        current_time, ALERT_TIME_ZONE
+    ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if month_start > current_month:
+        raise ValueError("不能查询未来月份")
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(
+        day=1
+    )
+    range_end = min(int(next_month.timestamp()) - 60, current_minute)
+    return int(month_start.timestamp()), range_end
+
+
+def get_user_probe_trend(
+    user_id: int,
+    source_ip_id: int,
+    probe_mode: int,
+    protocol_type: ProtocolType,
+    range_type: ProbeRangeType,
+    month: str | None = None,
+    current_time: int | None = None,
+) -> ProbeTrendData:
+    """查询用户节点在指定探测模式和时间范围内的分钟趋势。
+
+    参数:
+        user_id: 当前登录用户的内部主键。
+        source_ip_id: 用户选择的源 IP 记录主键。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+        protocol_type: icmp、tcp 或 udp 协议类型。
+        range_type: 最近 1、2、7 天或月份范围。
+        month: 月份范围使用的 YYYY-MM 字符串。
+        current_time: 可选的当前时间戳，主要用于确定相对范围。
+    返回:
+        查询范围及按目标 IP 分组的指定协议趋势。
+    """
+    start_time, end_time = _resolve_probe_time_range(
+        range_type,
+        month,
+        int(time()) if current_time is None else current_time,
+    )
+    state_model = PROBE_STATE_MODELS[protocol_type]
+
+    with SessionLocal() as session:
+        source_exists = session.scalar(
+            select(IPDict.id)
+            .join(Device, IPDict.device_related_id == Device.id)
+            .where(IPDict.id == source_ip_id, Device.user_id == user_id)
+        )
+        if source_exists is None:
+            raise ValueError("探测节点不存在或不属于当前用户")
+
+        records = session.execute(
+            select(
+                state_model.time_id,
+                IPDict.id.label("target_ip_id"),
+                IPDict.ip,
+                IPDict.province,
+                IPDict.isp,
+                state_model.loss_rate,
+                state_model.rtt_ms,
+            )
+            .join(IPDict, IPDict.id == state_model.target_ip_id)
+            .where(
+                state_model.source_ip_id == source_ip_id,
+                state_model.probe_mode == probe_mode,
+                state_model.time_id.between(start_time, end_time),
+                state_model.device_related_id.in_(
+                    select(Device.id).where(Device.user_id == user_id)
+                ),
+            )
+            .order_by(IPDict.id, state_model.time_id)
+        ).all()
+
+    series_by_target: dict[int, ProbeTrendSeries] = {}
+    for record in records:
+        series = series_by_target.setdefault(
+            record.target_ip_id,
+            ProbeTrendSeries(
+                targetIpId=record.target_ip_id,
+                targetIp=record.ip,
+                label=format_probe_node_label(
+                    record.province,
+                    record.isp,
+                    record.ip,
+                ),
+                points=[],
+            ),
+        )
+        series.points.append(
+            ProbeTrendPoint(
+                timeId=record.time_id,
+                lossRate=round(float(record.loss_rate) / 10, 1),
+                averageLatencyMs=round(float(record.rtt_ms), 1),
+            )
+        )
+    return ProbeTrendData(
+        startTime=start_time,
+        endTime=end_time,
+        series=list(series_by_target.values()),
+    )
 
 
 def _accepts_probe_mode(user: User, probe_mode: str) -> bool:

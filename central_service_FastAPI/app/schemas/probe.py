@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 ProbeMode = Literal["cross_isp", "cross_province"]
 ProtocolType = Literal["icmp", "tcp", "udp"]
+ProbeRangeType = Literal["1d", "2d", "7d", "month"]
 
 
 class ProbeTarget(BaseModel):
@@ -88,3 +89,52 @@ class ProbeAcceptedResponse(BaseModel):
     """表示中央服务已接受探测上报。"""
 
     accepted: bool = True
+
+
+class ProbeNodeItem(BaseModel):
+    """表示当前用户关联设备的一个探测源节点。"""
+
+    id: int
+    ip: str
+    label: str
+
+
+class ProbeNodesResponse(BaseModel):
+    """当前用户探测源节点列表的统一响应。"""
+
+    code: int = 200
+    msg: str = "探测节点获取成功"
+    data: list[ProbeNodeItem]
+
+
+class ProbeTrendPoint(BaseModel):
+    """保存一个目标 IP 在自然分钟窗口内的协议探测值。"""
+
+    timeId: int
+    lossRate: float
+    averageLatencyMs: float
+
+
+class ProbeTrendSeries(BaseModel):
+    """保存一个目标 IP 的探测趋势序列。"""
+
+    targetIpId: int
+    targetIp: str
+    label: str
+    points: list[ProbeTrendPoint]
+
+
+class ProbeTrendData(BaseModel):
+    """保存指定查询范围及其中的目标 IP 趋势序列。"""
+
+    startTime: int
+    endTime: int
+    series: list[ProbeTrendSeries]
+
+
+class ProbeTrendResponse(BaseModel):
+    """探测趋势数据的统一响应。"""
+
+    code: int = 200
+    msg: str = "探测趋势获取成功"
+    data: ProbeTrendData

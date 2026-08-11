@@ -48,12 +48,20 @@ export interface ChartThemeConfig {
   chartHeight: string
   /** 字体大小 */
   fontSize: number
+  /** 紧凑字体大小 */
+  smallFontSize: number
+  /** 默认折线宽度 */
+  lineWidth: number
+  /** 细折线宽度 */
+  thinLineWidth: number
   /** 字体颜色 */
   fontColor: string
   /** 主题颜色 */
   themeColor: string
   /** 颜色组 */
   colors: string[]
+  /** 高区分度分类颜色组 */
+  categoricalColors: string[]
 }
 
 // 图表初始化选项
@@ -129,8 +137,8 @@ export interface BarChartProps extends BaseChartProps, AxisDisplayProps, Interac
 export interface LineDataItem {
   /** 系列名称 */
   name: string
-  /** 数据值 */
-  data: number[]
+  /** 数据值，null 表示当前横轴窗口无记录 */
+  data: Array<number | null>
   /** 线条宽度 */
   lineWidth?: number
   /** 是否显示区域填充 */
@@ -155,11 +163,13 @@ export interface LineDataItem {
 // 折线图 Props 接口 - 统一折线图配置
 export interface LineChartProps extends BaseChartProps, AxisDisplayProps, InteractionProps {
   /** 图表数据 - 支持单组数据或多组数据 */
-  data: number[] | LineDataItem[]
+  data: Array<number | null> | LineDataItem[]
   /** X轴标签数据 */
   xAxisData?: string[]
   /** 线条宽度 */
   lineWidth?: number
+  /** 曲线透明度 */
+  lineOpacity?: number
   /** 是否显示区域填充 */
   showAreaColor?: boolean
   /** 是否平滑曲线 */
@@ -170,6 +180,46 @@ export interface LineChartProps extends BaseChartProps, AxisDisplayProps, Intera
   symbolSize?: number
   /** 多数据动画延迟间隔（毫秒） */
   animationDelay?: number
+  /** 是否启用阶梯式动画 */
+  animationEnabled?: boolean
+  /** Y轴最小值 */
+  yAxisMin?: number
+  /** Y轴最大值，不传时根据数据计算 */
+  yAxisMax?: number
+  /** Y轴名称 */
+  yAxisName?: string
+  /** 数值展示单位 */
+  valueUnit?: string
+  /** tooltip 是否展示当前窗口的全部系列 */
+  showAllTooltipSeries?: boolean
+  /** 是否连接 null 缺失点 */
+  connectNulls?: boolean
+  /** 是否将全零序列视为空数据 */
+  zeroIsEmpty?: boolean
+  /** 是否使用紧凑坐标轴刻度字号 */
+  compactAxisLabels?: boolean
+  /** X轴刻度旋转角度 */
+  xAxisLabelRotate?: number
+  /** X轴刻度线与刻度值的间距 */
+  xAxisLabelMargin?: number
+  /** 是否显示X轴刻度线 */
+  showXAxisTick?: boolean
+  /** X轴刻度与标签间隔，0 表示全部显示 */
+  xAxisInterval?: number
+  /** 是否将X轴线、刻度和刻度值调整为较浅灰阶 */
+  softenXAxis?: boolean
+  /** 是否显示Y轴轴线 */
+  showYAxisLine?: boolean
+  /** 是否显示Y轴刻度值 */
+  showYAxisLabel?: boolean
+  /** 是否使用深色坐标轴线、刻度和标签 */
+  emphasizeAxis?: boolean
+  /** 是否强调Y轴标题 */
+  emphasizeYAxisName?: boolean
+  /** 是否使用紧凑 tooltip 字号 */
+  compactTooltip?: boolean
+  /** emphasis 状态下是否加粗曲线 */
+  thickenOnEmphasis?: boolean
 }
 
 // 雷达图数据项接口
