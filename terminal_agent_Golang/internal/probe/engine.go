@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	probeCount         = 100
-	windowLength       = time.Minute
-	reportJitterWindow = 10 * time.Second
+	probeCount              = 100
+	maximumAverageLatencyMS = 300
+	windowLength            = time.Minute
+	reportJitterWindow      = 10 * time.Second
 )
 
 var protocolNames = []string{"icmp", "tcp", "udp"}
@@ -633,10 +634,13 @@ func randomReportDelay() time.Duration {
 // 参数:
 //   - stats: 单个逻辑目标的内部统计。
 //
-// 返回值: 符合中央服务契约的协议汇总结果。
+// 返回值: 平均延迟不超过 300ms 的中央服务协议汇总结果。
 func summarize(stats protocolStats) client.ProtocolResult {
 	if stats.attempted == 0 || stats.succeeded == 0 {
-		return client.ProtocolResult{LossRate: 1000, AverageLatencyMS: 1000}
+		return client.ProtocolResult{
+			LossRate:         1000,
+			AverageLatencyMS: maximumAverageLatencyMS,
+		}
 	}
 	lost := stats.attempted - stats.succeeded
 	lossRate := int(math.Round(float64(lost) / float64(stats.attempted) * 1000))
@@ -645,7 +649,7 @@ func summarize(stats protocolStats) client.ProtocolResult {
 	))
 	return client.ProtocolResult{
 		LossRate:         lossRate,
-		AverageLatencyMS: averageMilliseconds,
+		AverageLatencyMS: min(averageMilliseconds, maximumAverageLatencyMS),
 	}
 }
 

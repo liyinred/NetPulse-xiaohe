@@ -1,10 +1,15 @@
 """FastAPI 应用创建与启动入口。"""
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse, Response
+from starlette.types import Scope
 
 import app.models  # noqa: F401
 from app.api.router import api_router
@@ -14,6 +19,42 @@ from app.db.session import engine
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+FRONTEND_DIST_DIR = Path(__file__).resolve().parents[2] / "frontend_Vue3" / "dist"
+
+
+class FrontendStaticFiles(StaticFiles):
+    """提供禁用 HTML 缓存的前端静态文件服务。"""
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        """创建静态文件响应，并禁止浏览器缓存 HTML 文件。
+
+        参数:
+            full_path: 静态文件的完整路径。
+            stat_result: 静态文件的状态信息。
+            scope: 当前 ASGI 请求上下文。
+            status_code: HTTP 响应状态码。
+        返回:
+            已配置缓存策略的静态文件响应。
+        """
+        if Path(full_path).suffix.lower() != ".html":
+            return super().file_response(full_path, stat_result, scope, status_code)
+
+        response = FileResponse(
+            full_path,
+            status_code=status_code,
+            stat_result=stat_result,
+        )
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
 
 @asynccontextmanager
@@ -35,10 +76,15 @@ def create_app() -> FastAPI:
     参数:
         无。
     返回:
-        已注册业务路由的 FastAPI 应用。
+        已注册业务路由并挂载前端构建产物的 FastAPI 应用。
     """
     application = FastAPI(title="central_service_FastAPI", lifespan=lifespan)
     application.include_router(api_router)
+    application.mount(
+        "/",
+        FrontendStaticFiles(directory=FRONTEND_DIST_DIR, html=True),
+        name="frontend",
+    )
     return application
 
 

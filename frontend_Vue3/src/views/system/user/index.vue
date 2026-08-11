@@ -16,14 +16,23 @@
         @pagination:current-change="handleCurrentChange"
       />
     </ElCard>
+
+    <UserDialog
+      v-model:visible="dialogVisible"
+      :user-data="currentUserData"
+      @success="handleDialogSuccess"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ElTag } from 'element-plus'
+  import { Edit } from '@element-plus/icons-vue'
+  import { ElButton, ElTag } from 'element-plus'
   import { fetchGetUserList } from '@/api/system-manage'
   import { useTable } from '@/hooks/core/useTable'
   import { formatBeijingTime } from '@/utils/date'
+  import { ALERT_TYPE_CONFIG } from './alert-type'
+  import UserDialog from './modules/user-dialog.vue'
   import UserSearch from './modules/user-search.vue'
 
   defineOptions({ name: 'UserManagement' })
@@ -37,6 +46,8 @@
 
   const defaultSort = { prop: 'createdTime', order: 'descending' as const }
   const paginationOptions = { pageSizes: [25, 50, 100] }
+  const dialogVisible = ref(false)
+  const currentUserData = ref<UserListItem>()
   const searchForm = ref<Api.SystemManage.UserSearchParams>({
     sortField: 'createdTime',
     sortOrder: 'desc'
@@ -93,7 +104,8 @@
     resetSearchParams,
     handleSizeChange,
     handleCurrentChange,
-    refreshData
+    refreshData,
+    refreshUpdate
   } = useTable({
     core: {
       apiFn: fetchGetUserList,
@@ -126,11 +138,37 @@
           }
         },
         {
+          prop: 'alertType',
+          label: '告警类型',
+          minWidth: 130,
+          sortable: 'custom',
+          formatter: (row) => {
+            const config = ALERT_TYPE_CONFIG[row.alertType]
+            return h(ElTag, { type: config.type }, () => config.text)
+          }
+        },
+        {
           prop: 'createdTime',
           label: '创建时间',
           minWidth: 180,
           sortable: 'custom',
           formatter: (row) => formatBeijingTime(row.createdTime)
+        },
+        {
+          prop: 'operation',
+          label: '操作',
+          width: 90,
+          fixed: 'right',
+          formatter: (row) =>
+            h(ElButton, {
+              icon: Edit,
+              type: 'primary',
+              size: 'small',
+              circle: true,
+              title: '编辑告警类型',
+              'aria-label': '编辑告警类型',
+              onClick: () => openEditDialog(row)
+            })
         }
       ]
     }
@@ -144,6 +182,24 @@
   const handleSearch = (params: Api.SystemManage.UserSearchParams): void => {
     replaceSearchParams(params)
     void getData()
+  }
+
+  /**
+   * 使用当前行数据打开用户告警类型编辑弹窗。
+   * @param row 当前用户表格记录。
+   * @returns 无返回值。
+   */
+  const openEditDialog = (row: UserListItem): void => {
+    currentUserData.value = row
+    dialogVisible.value = true
+  }
+
+  /**
+   * 用户告警类型更新成功后刷新当前筛选结果。
+   * @returns 无返回值。
+   */
+  const handleDialogSuccess = (): void => {
+    void refreshUpdate()
   }
 
   /**

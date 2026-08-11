@@ -1,6 +1,7 @@
 """用户管理 API 数据模型。"""
 
 from enum import IntEnum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -12,6 +13,15 @@ class SubscribeStatus(IntEnum):
 
     UNSUBSCRIBED = 0
     SUBSCRIBED = 1
+
+
+class AlertType(IntEnum):
+    """用户服务号告警类型值。"""
+
+    NONE = 0
+    CROSS_ISP = 1
+    CROSS_PROVINCE = 2
+    ALL = 3
 
 
 class UserLevel(IntEnum):
@@ -29,6 +39,7 @@ class UserListItem(BaseModel):
     openid: str | None
     userLevel: int
     subscribeStatus: int | None
+    alertType: Literal[0, 1, 2, 3]
     createdTime: int | None
 
 
@@ -38,3 +49,17 @@ class UserListResponse(BaseModel):
     code: int = 200
     msg: str = "用户列表获取成功"
     data: PaginatedData[UserListItem]
+
+
+class UserAlertTypeUpdateRequest(BaseModel):
+    """修改用户服务号告警类型的请求。"""
+
+    alertType: Literal[0, 1, 2, 3]
+
+
+class UserAlertTypeUpdateResponse(BaseModel):
+    """修改用户服务号告警类型的统一响应。"""
+
+    code: int = 200
+    msg: str = "用户告警类型更新成功"
+    data: UserListItem

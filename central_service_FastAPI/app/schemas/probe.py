@@ -41,7 +41,7 @@ class ProtocolProbeResult(BaseModel):
     """保存一种协议在自然分钟窗口内的汇总结果。"""
 
     loss_rate: int = Field(ge=0, le=1000)
-    average_latency_ms: int = Field(ge=0)
+    average_latency_ms: int = Field(ge=0, le=300)
 
 
 class TargetProbeResult(BaseModel):

@@ -354,8 +354,8 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 
 - 有效窗口必须完成 100 次探测，只统计超时前收到的合法且唯一响应。
 - `loss_rate` 使用 0 至 1000 的整数千分比；例如 1% 丢包为 `10`，10% 丢包为 `100`，100% 丢包为 `1000`。
-- `average_latency_ms` 使用四舍五入后的整数毫秒。
-- 平均延迟仅计算成功响应；100% 丢包时没有成功 RTT 样本，统一使用加大值 `1000ms`，不得返回 `null`。该值是丢包占位值，不代表真实 RTT，必须结合 `loss_rate = 1000` 判断。
+- `average_latency_ms` 使用四舍五入后的整数毫秒，最大值为 `300ms`。
+- 平均延迟仅计算成功响应并封顶为 `300ms`；100% 丢包时没有成功 RTT 样本，统一使用 `300ms`，不得返回 `null`。该值在 `loss_rate = 1000` 时是丢包占位值，不代表真实 RTT。
 - 各协议按统一成功条件分类；TCP connected 和 TCP refused 均计入成功。
 
 ### 5.4 协议 Driver

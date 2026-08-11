@@ -130,19 +130,29 @@ declare namespace Api {
     /** 用户列表 */
     type UserList = Api.Common.PaginatedResponse<UserListItem>
 
+    /** 用户服务号告警类型 */
+    type UserAlertType = 0 | 1 | 2 | 3
+
     /** 用户列表项 */
     interface UserListItem {
       id: number
       openid: string | null
       userLevel: number
       subscribeStatus: number | null
+      alertType: UserAlertType
       createdTime: number | null
     }
 
     /** 用户搜索参数 */
     type UserSearchParams = Partial<
-      Pick<UserListItem, 'openid' | 'userLevel' | 'subscribeStatus'> & Api.Common.CommonSearchParams
+      Pick<UserListItem, 'openid' | 'userLevel' | 'subscribeStatus' | 'alertType'> &
+        Api.Common.CommonSearchParams
     >
+
+    /** 用户服务号告警类型修改请求 */
+    interface UserAlertTypeUpdateParams {
+      alertType: UserAlertType
+    }
 
     /** 角色列表 */
     type RoleList = Api.Common.PaginatedResponse<RoleListItem>

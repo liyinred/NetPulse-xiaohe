@@ -41,10 +41,30 @@ export function fetchUpdateIPPublicStatus(
   })
 }
 
-// 获取用户列表
+/**
+ * 获取用户管理分页列表。
+ * @param params 用户筛选、排序和分页参数。
+ * @returns 用户管理分页列表请求结果。
+ */
 export function fetchGetUserList(params: Api.SystemManage.UserSearchParams) {
   return request.get<Api.SystemManage.UserList>({
     url: '/api/user/list',
+    params
+  })
+}
+
+/**
+ * 修改指定用户的服务号告警类型。
+ * @param userId users 表记录 ID。
+ * @param params 新服务号告警类型。
+ * @returns 更新后的用户记录。
+ */
+export function fetchUpdateUserAlertType(
+  userId: number,
+  params: Api.SystemManage.UserAlertTypeUpdateParams
+) {
+  return request.put<Api.SystemManage.UserListItem>({
+    url: `/api/user/${userId}/alert-type`,
     params
   })
 }

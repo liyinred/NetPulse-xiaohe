@@ -12,7 +12,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
-            "alert_type IN (1, 2, 3)",
+            "alert_type IN (0, 1, 2, 3)",
             name="ck_users_alert_type",
         ),
         CheckConstraint(

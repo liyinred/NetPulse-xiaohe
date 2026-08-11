@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	probeTimeout = 300 * time.Millisecond
+	probeTimeout = time.Duration(maximumAverageLatencyMS) * time.Millisecond
 	tcpPort      = 80
 	udpPort      = 33434
 )

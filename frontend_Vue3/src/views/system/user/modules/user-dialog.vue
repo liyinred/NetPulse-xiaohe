@@ -1,143 +1,131 @@
 <template>
   <ElDialog
     v-model="dialogVisible"
-    :title="dialogType === 'add' ? '添加用户' : '编辑用户'"
-    width="30%"
+    title="编辑用户告警类型"
+    width="25%"
     align-center
+    :close-on-click-modal="false"
+    :close-on-press-escape="!submitting"
+    :show-close="!submitting"
+    @closed="resetForm"
   >
-    <ElForm ref="formRef" :model="formData" :rules="rules" label-width="80px">
-      <ElFormItem label="用户名" prop="username">
-        <ElInput v-model="formData.username" placeholder="请输入用户名" />
+    <ElForm ref="formRef" :model="formData" :rules="rules" label-width="auto">
+      <ElFormItem label="openid">
+        <ElInput :model-value="userData?.openid || '-'" disabled />
       </ElFormItem>
-      <ElFormItem label="手机号" prop="phone">
-        <ElInput v-model="formData.phone" placeholder="请输入手机号" />
-      </ElFormItem>
-      <ElFormItem label="性别" prop="gender">
-        <ElSelect v-model="formData.gender">
-          <ElOption label="男" value="男" />
-          <ElOption label="女" value="女" />
-        </ElSelect>
-      </ElFormItem>
-      <ElFormItem label="角色" prop="role">
-        <ElSelect v-model="formData.role" multiple>
+      <ElFormItem label="告警类型" prop="alertType">
+        <ElSelect v-model="formData.alertType" placeholder="请选择告警类型">
           <ElOption
-            v-for="role in roleList"
-            :key="role.roleCode"
-            :value="role.roleCode"
-            :label="role.roleName"
+            v-for="option in ALERT_TYPE_OPTIONS"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
           />
         </ElSelect>
       </ElFormItem>
     </ElForm>
+
     <template #footer>
-      <div class="dialog-footer">
-        <ElButton @click="dialogVisible = false">取消</ElButton>
-        <ElButton type="primary" @click="handleSubmit">提交</ElButton>
-      </div>
+      <ElButton :disabled="submitting" @click="handleClose">取消</ElButton>
+      <ElButton type="primary" :loading="submitting" @click="handleSubmit">提交</ElButton>
     </template>
   </ElDialog>
 </template>
 
 <script setup lang="ts">
-  import { ROLE_LIST_DATA } from '@/mock/temp/formData'
   import type { FormInstance, FormRules } from 'element-plus'
+  import { fetchUpdateUserAlertType } from '@/api/system-manage'
+  import { ALERT_TYPE_OPTIONS } from '../alert-type'
 
   interface Props {
     visible: boolean
-    type: string
-    userData?: Partial<Api.SystemManage.UserListItem>
+    userData?: Api.SystemManage.UserListItem
   }
 
   interface Emits {
-    (e: 'update:visible', value: boolean): void
-    (e: 'submit'): void
+    (event: 'update:visible', value: boolean): void
+    (event: 'success'): void
   }
 
-  const props = defineProps<Props>()
+  const props = withDefaults(defineProps<Props>(), {
+    visible: false,
+    userData: undefined
+  })
   const emit = defineEmits<Emits>()
+  const formRef = ref<FormInstance>()
+  const submitting = ref(false)
+  const formData = reactive<{ alertType: Api.SystemManage.UserAlertType }>({
+    alertType: 0
+  })
+  const rules: FormRules = {
+    alertType: [{ required: true, message: '请选择告警类型', trigger: 'change' }]
+  }
 
-  // 角色列表数据
-  const roleList = ref(ROLE_LIST_DATA)
-
-  // 对话框显示控制
   const dialogVisible = computed({
     get: () => props.visible,
     set: (value) => emit('update:visible', value)
   })
 
-  const dialogType = computed(() => props.type)
-
-  // 表单实例
-  const formRef = ref<FormInstance>()
-
-  // 表单数据
-  const formData = reactive({
-    username: '',
-    phone: '',
-    gender: '男',
-    role: [] as string[]
-  })
-
-  // 表单验证规则
-  const rules: FormRules = {
-    username: [
-      { required: true, message: '请输入用户名', trigger: 'blur' },
-      { min: 2, max: 20, message: '长度在 2 到 20 个字符', trigger: 'blur' }
-    ],
-    phone: [
-      { required: true, message: '请输入手机号', trigger: 'blur' },
-      { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号格式', trigger: 'blur' }
-    ],
-    gender: [{ required: true, message: '请选择性别', trigger: 'blur' }],
-    role: [{ required: true, message: '请选择角色', trigger: 'blur' }]
+  /**
+   * 使用当前用户数据初始化告警类型表单。
+   * @returns 无返回值。
+   */
+  const initializeForm = (): void => {
+    formData.alertType = props.userData?.alertType ?? 0
   }
 
-  /**
-   * 初始化表单数据
-   * 根据对话框类型（新增/编辑）填充表单
-   */
-  const initFormData = () => {
-    const isEdit = props.type === 'edit' && props.userData
-    const row = props.userData
-
-    Object.assign(formData, {
-      username: isEdit && row ? row.userName || '' : '',
-      phone: isEdit && row ? row.userPhone || '' : '',
-      gender: isEdit && row ? row.userGender || '男' : '男',
-      role: isEdit && row ? (Array.isArray(row.userRoles) ? row.userRoles : []) : []
-    })
-  }
-
-  /**
-   * 监听对话框状态变化
-   * 当对话框打开时初始化表单数据并清除验证状态
-   */
   watch(
-    () => [props.visible, props.type, props.userData],
-    ([visible]) => {
-      if (visible) {
-        initFormData()
-        nextTick(() => {
-          formRef.value?.clearValidate()
-        })
-      }
-    },
-    { immediate: true }
+    () => props.visible,
+    (opened) => {
+      if (!opened) return
+      initializeForm()
+      nextTick(() => formRef.value?.clearValidate())
+    }
   )
 
   /**
-   * 提交表单
-   * 验证通过后触发提交事件
+   * 关闭用户告警类型编辑弹窗。
+   * @returns 无返回值。
    */
-  const handleSubmit = async () => {
-    if (!formRef.value) return
+  const handleClose = (): void => {
+    if (submitting.value) return
+    dialogVisible.value = false
+  }
 
-    await formRef.value.validate((valid) => {
-      if (valid) {
-        ElMessage.success(dialogType.value === 'add' ? '添加成功' : '更新成功')
-        dialogVisible.value = false
-        emit('submit')
-      }
-    })
+  /**
+   * 重置告警类型表单和校验状态。
+   * @returns 无返回值。
+   */
+  const resetForm = (): void => {
+    initializeForm()
+    formRef.value?.resetFields()
+  }
+
+  /**
+   * 校验表单并更新当前用户的服务号告警类型。
+   * @returns 无返回值。
+   */
+  const handleSubmit = async (): Promise<void> => {
+    if (!formRef.value || !props.userData || submitting.value) return
+
+    try {
+      await formRef.value.validate()
+    } catch {
+      return
+    }
+
+    submitting.value = true
+    try {
+      await fetchUpdateUserAlertType(props.userData.id, {
+        alertType: formData.alertType
+      })
+      ElMessage.success('用户告警类型更新成功')
+      emit('success')
+      dialogVisible.value = false
+    } catch {
+      return
+    } finally {
+      submitting.value = false
+    }
   }
 </script>

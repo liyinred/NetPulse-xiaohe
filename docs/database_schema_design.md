@@ -10,12 +10,12 @@
 | `openid`           | `VARCHAR(128)` | `UNIQUE`                             | 有效微信用户标识；无有效值时不创建用户记录                 |
 | `scene_str`        | `VARCHAR(16)`  | `UNIQUE`                             | 字符串场景值，同时作为 Agent 轮询查询键                    |
 | `subscribe_status` | `INT`          | -                                      | 当前是否关注服务号；`0` 表示未订阅，`1` 表示已订阅     |
-| `alert_type`       | `INT`          | `NOT NULL`, `DEFAULT 1`, `CHECK` | 接收告警类型：`1`=仅异网、`2`=仅跨省、`3`=异网和跨省 |
+| `alert_type`       | `INT`          | `NOT NULL`, `DEFAULT 1`, `CHECK` | 接收告警类型：`0`=不接收服务号告警、`1`=仅异网、`2`=仅跨省、`3`=异网和跨省 |
 | `user_level`       | `INT`          | `NOT NULL`, `DEFAULT 1`, `CHECK` | 用户等级：`1`=普通用户、`2`=高级用户、`9`=管理员       |
 | `created_time`     | `INT64`        | -                                      | 创建时间，Unix 时间戳，单位秒                              |
 | `updated_time`     | `INT64`        | -                                      | 更新时间，Unix 时间戳，单位秒                              |
 
-创建二维码时不预写用户记录；微信回调取得有效 `openid` 后才创建或更新用户，`alert_type` 和 `user_level` 均默认为 `1`。`user_level` 仅允许 `1`、`2` 或 `9`，分别表示普通用户、高级用户和管理员。绑定轮询校验关注状态和场景有效期，完成设备关联后仅返回绑定状态。用户可在微信服务号中将 `alert_type` 修改为 `1`、`2` 或 `3`，该设置对其全部设备生效且不会因重新绑定或 Agent 重启而重置。
+创建二维码时不预写用户记录；微信回调取得有效 `openid` 后才创建或更新用户，`alert_type` 和 `user_level` 均默认为 `1`。`alert_type` 仅允许 `0`、`1`、`2` 或 `3`；设置为 `0` 后不接收任何服务号告警，但不影响持续探测及告警事件入库。`user_level` 仅允许 `1`、`2` 或 `9`，分别表示普通用户、高级用户和管理员。绑定轮询校验关注状态和场景有效期，完成设备关联后仅返回绑定状态。用户可通过用户管理页面修改 `alert_type`，该设置对其全部设备生效且不会因重新绑定或 Agent 重启而重置。
 
 ### 7.2 `ip_dict`
 
@@ -75,7 +75,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `target_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                           |
 | `probe_mode`   | `INT`   | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省           |
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | ICMP 丢包率，0 至 1000 的整数千分比        |
-| `rtt_ms`       | `INT`   | `NOT NULL`                          | ICMP 整数毫秒 RTT；100% 丢包时写入`1000` |
+| `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | ICMP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
 
 ### 7.5 `probe_state_tcp`
 
@@ -89,7 +89,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `target_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                          |
 | `probe_mode`   | `INT`   | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省          |
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | TCP 丢包率，0 至 1000 的整数千分比        |
-| `rtt_ms`       | `INT`   | `NOT NULL`                          | TCP 整数毫秒 RTT；100% 丢包时写入`1000` |
+| `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | TCP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
 
 ### 7.6 `probe_state_udp`
 
@@ -103,9 +103,9 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `target_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                          |
 | `probe_mode`   | `INT`   | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省          |
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | UDP 丢包率，0 至 1000 的整数千分比        |
-| `rtt_ms`       | `INT`   | `NOT NULL`                          | UDP 整数毫秒 RTT；100% 丢包时写入`1000` |
+| `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | UDP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
 
-三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务根据上报的 `device_id` 查询已绑定设备，将其内部主键写入每条状态记录的 `device_related_id`；再根据上报的 `source_ip` 解析源 `ip_dict.id`，并遍历 `targets`，根据每个全局唯一的 `target_ip` 解析目标 `ip_dict.id`。源 IP 必须属于该设备，目标 IP 不要求关联设备但不得属于当前设备，且两者的 `ip_version` 必须相同并等于上报值，任一目标的归属、版本或分类不匹配时拒绝整份上报。`ip_version` 由 `source_ip_id` 和 `target_ip_id` 关联的 `ip_dict.ip_version` 保存，不在状态表中重复存储；`probe_mode` 转换为数值编码，API 中的整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 分别直接写入 `loss_rate` 与 `rtt_ms`。幂等重试除比较丢包率和 RTT 外，也比较已有记录的 `device_related_id`。
+三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务根据上报的 `device_id` 查询已绑定设备，将其内部主键写入每条状态记录的 `device_related_id`；再根据上报的 `source_ip` 解析源 `ip_dict.id`，并遍历 `targets`，根据每个全局唯一的 `target_ip` 解析目标 `ip_dict.id`。源 IP 必须属于该设备，目标 IP 不要求关联设备但不得属于当前设备，且两者的 `ip_version` 必须相同并等于上报值，任一目标的归属、版本或分类不匹配时拒绝整份上报。`ip_version` 由 `source_ip_id` 和 `target_ip_id` 关联的 `ip_dict.ip_version` 保存，不在状态表中重复存储；`probe_mode` 转换为数值编码，API 中的整数千分比 `loss_rate` 和 0 至 300 的整数毫秒 `average_latency_ms` 分别直接写入 `loss_rate` 与 `rtt_ms`。幂等重试除比较丢包率和 RTT 外，也比较已有记录的 `device_related_id`。
 
 ### 7.7 `alert_events`
 
@@ -122,7 +122,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
 | `message`       | `TEXT`        | -                    | 包含分类、协议及源目标地址的告警事件摘要       |
 
-中央服务根据告警中的 `device_id` 查询已绑定设备，将其内部主键写入 `device_related_id`，并结合 `source_ip` 查询归属匹配的 `ip_dict.id` 写入 `source_ip_id`；根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 写入 `target_ip_id`，同时校验目标不属于当前设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。目标 IP 不要求关联设备。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件记录始终保存 `message`；发送服务号模板消息时，中央服务直接通过 `alert_events.device_related_id` 查询 `devices.user_id`，再查询对应用户的 `openid`、关注状态和 `alert_type`，仅向仍关注且告警类型匹配的用户发送通知。
+中央服务根据告警中的 `device_id` 查询已绑定设备，将其内部主键写入 `device_related_id`，并结合 `source_ip` 查询归属匹配的 `ip_dict.id` 写入 `source_ip_id`；根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 写入 `target_ip_id`，同时校验目标不属于当前设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。目标 IP 不要求关联设备。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件记录始终保存 `message`；发送服务号模板消息时，中央服务直接通过 `alert_events.device_related_id` 查询 `devices.user_id`，再查询对应用户的 `openid`、关注状态和 `alert_type`，仅向仍关注且告警类型匹配的用户发送通知。`alert_type=0` 时告警事件仍正常保存，但不发送任何服务号模板消息。
 
 ### 7.8 `on_demand_executions`
 

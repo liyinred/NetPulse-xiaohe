@@ -43,6 +43,10 @@ class ICMPProbeState(ProbeStateMixin, Base):
             "loss_rate BETWEEN 0 AND 1000",
             name="ck_probe_state_icmp_loss_rate",
         ),
+        CheckConstraint(
+            "rtt_ms BETWEEN 0 AND 300",
+            name="ck_probe_state_icmp_rtt_ms",
+        ),
     )
 
 
@@ -59,6 +63,10 @@ class TCPProbeState(ProbeStateMixin, Base):
             "loss_rate BETWEEN 0 AND 1000",
             name="ck_probe_state_tcp_loss_rate",
         ),
+        CheckConstraint(
+            "rtt_ms BETWEEN 0 AND 300",
+            name="ck_probe_state_tcp_rtt_ms",
+        ),
     )
 
 
@@ -74,5 +82,9 @@ class UDPProbeState(ProbeStateMixin, Base):
         CheckConstraint(
             "loss_rate BETWEEN 0 AND 1000",
             name="ck_probe_state_udp_loss_rate",
+        ),
+        CheckConstraint(
+            "rtt_ms BETWEEN 0 AND 300",
+            name="ck_probe_state_udp_rtt_ms",
         ),
     )

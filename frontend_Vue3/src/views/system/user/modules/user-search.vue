@@ -3,6 +3,8 @@
 </template>
 
 <script setup lang="ts">
+  import { ALERT_TYPE_OPTIONS } from '../alert-type'
+
   interface Props {
     modelValue: Api.SystemManage.UserSearchParams
   }
@@ -53,6 +55,16 @@
           { label: '高级用户', value: 2 },
           { label: '管理员', value: 9 }
         ]
+      }
+    },
+    {
+      label: '接收告警类型',
+      key: 'alertType',
+      type: 'select',
+      props: {
+        placeholder: '请选择接收告警类型',
+        clearable: true,
+        options: ALERT_TYPE_OPTIONS
       }
     }
   ]
