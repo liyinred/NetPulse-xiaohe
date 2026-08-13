@@ -28,7 +28,6 @@ from app.schemas.probe import (
     ProbeTargetsRequest,
     ProbeTargetsResponse,
     ProbeTrendData,
-    ProbeTrendPoint,
     ProbeTrendSeries,
     ProtocolType,
 )
@@ -578,10 +577,10 @@ def get_user_probe_trend(
             ),
         )
         series.points.append(
-            ProbeTrendPoint(
-                timeId=record.time_id,
-                lossRate=round(float(record.loss_rate) / 10, 1),
-                averageLatencyMs=round(float(record.rtt_ms), 1),
+            (
+                record.time_id,
+                round(float(record.loss_rate) / 10, 1),
+                round(float(record.rtt_ms), 1),
             )
         )
     return ProbeTrendData(

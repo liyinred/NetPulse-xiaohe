@@ -60,8 +60,6 @@ export interface ChartThemeConfig {
   themeColor: string
   /** 颜色组 */
   colors: string[]
-  /** 高区分度分类颜色组 */
-  categoricalColors: string[]
 }
 
 // 图表初始化选项
@@ -192,6 +190,8 @@ export interface LineChartProps extends BaseChartProps, AxisDisplayProps, Intera
   valueUnit?: string
   /** tooltip 是否展示当前窗口的全部系列 */
   showAllTooltipSeries?: boolean
+  /** tooltip 中需要标红的指标值 */
+  tooltipAlertValue?: number
   /** 是否连接 null 缺失点 */
   connectNulls?: boolean
   /** 是否将全零序列视为空数据 */
@@ -220,6 +220,14 @@ export interface LineChartProps extends BaseChartProps, AxisDisplayProps, Intera
   compactTooltip?: boolean
   /** emphasis 状态下是否加粗曲线 */
   thickenOnEmphasis?: boolean
+  /** 是否使用 ECharts 内置颜色组 */
+  useBuiltInPalette?: boolean
+  /** 图例所在方向为绘图区预留的空间 */
+  legendSpace?: number
+  /** 鼠标悬停图例时是否高亮关联曲线 */
+  legendHoverLink?: boolean
+  /** 是否允许 Shift + 鼠标左键独占显示图例对应曲线 */
+  shiftLegendExclusiveSelect?: boolean
 }
 
 // 雷达图数据项接口

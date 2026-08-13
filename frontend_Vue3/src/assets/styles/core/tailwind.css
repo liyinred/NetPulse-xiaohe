@@ -6,6 +6,33 @@
   /* Base Colors */
   --art-color: #ffffff;
   --theme-color: var(--main-color);
+  --app-font-family:
+    'SF Pro Text', Inter, 'PingFang SC', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+
+  /* Top Navigation */
+  --art-header-inline-padding: 20px;
+  --art-header-compact-padding: 10px;
+  --art-header-column-gap: 20px;
+  --art-header-compact-gap: 10px;
+  --art-header-action-gap: 4px;
+  --art-header-brand-height: 40px;
+  --art-header-brand-compact-size: 36px;
+  --art-header-brand-padding: 14px;
+  --art-header-brand-logo-size: 30px;
+  --art-header-brand-name-size: 17px;
+  --art-header-menu-max-width: 760px;
+  --art-header-menu-viewport-width: 52vw;
+  --art-header-menu-height: 44px;
+  --art-header-menu-compact-height: 40px;
+  --art-header-menu-item-height: 34px;
+  --art-header-menu-shell-padding: 4px;
+  --art-header-menu-item-gap: 4px;
+  --art-header-menu-item-padding: 14px;
+  --art-header-menu-item-compact-padding: 10px;
+  --art-header-menu-submenu-padding: 28px;
+  --art-header-menu-arrow-offset: 10px;
+  --art-header-surface-shadow: 0 4px 16px rgb(0 0 0 / 6%);
+  --art-header-control-shadow: 0 2px 8px rgb(0 0 0 / 4%);
 
   /* Theme Colors - OKLCH Format */
   --art-primary: oklch(0.7 0.23 260);
@@ -85,6 +112,9 @@
 
 /* ==================== Tailwind Theme Configuration ==================== */
 @theme {
+  /* Global Font Family */
+  --font-sans: var(--app-font-family);
+
   /* Box Color (Light: white / Dark: black) */
   --color-box: var(--default-box-color);
 

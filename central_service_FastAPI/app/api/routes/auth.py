@@ -93,5 +93,6 @@ async def get_user_info(
             userId=user.id,
             userName=f"微信用户 {user.id}",
             email="",
+            userLevel=user.user_level,
         )
     )

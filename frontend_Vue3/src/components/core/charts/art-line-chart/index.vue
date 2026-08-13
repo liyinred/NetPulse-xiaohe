@@ -52,6 +52,9 @@
     emphasizeYAxisName: false,
     compactTooltip: false,
     thickenOnEmphasis: true,
+    useBuiltInPalette: false,
+    legendHoverLink: true,
+    shiftLegendExclusiveSelect: false,
 
     // 轴线显示配置
     showAxisLabel: true,
@@ -68,6 +71,7 @@
   const isAnimating = ref(false)
   const animationTimers = ref<number[]>([])
   const animatedData = ref<Array<number | null> | LineDataItem[]>([])
+  const isShiftPressed = ref(false)
 
   // 清理所有定时器
   const clearAnimationTimers = () => {
@@ -148,6 +152,12 @@
     getCssVar(props.softenXAxis ? '--art-gray-700' : '--art-gray-900')
   )
 
+  /**
+   * 获取项目主题中的系列颜色。
+   * @param customColor 系列指定颜色。
+   * @param index 系列索引。
+   * @returns 系列指定颜色或项目主题颜色。
+   */
   const getColor = (customColor?: string, index?: number): string => {
     if (customColor) return customColor
     if (index !== undefined) return props.colors![index % props.colors!.length]
@@ -155,12 +165,19 @@
   }
 
   // 生成区域样式
-  const generateAreaStyle = (item: LineDataItem, color: string) => {
+  /**
+   * 生成多系列折线的区域填充样式。
+   * @param item 折线系列数据项。
+   * @param color 系列指定颜色，未传时沿用 ECharts 自动分配的颜色。
+   * @returns 区域填充配置，未启用区域填充时返回 undefined。
+   */
+  const generateAreaStyle = (item: LineDataItem, color?: string) => {
     // 如果有 areaStyle 配置，或者显式开启了区域颜色，则显示区域样式
     if (!item.areaStyle && !item.showAreaColor && !props.showAreaColor) return undefined
 
     const areaConfig = item.areaStyle || {}
     if (areaConfig.custom) return areaConfig.custom
+    if (!color) return { opacity: areaConfig.startOpacity || 0.2 }
 
     return {
       color: new graphic.LinearGradient(0, 0, 0, 1, [
@@ -215,6 +232,7 @@
       data: config.data,
       type: 'line' as const,
       connectNulls: props.connectNulls,
+      legendHoverLink: props.legendHoverLink,
       color: config.color,
       smooth: config.smooth ?? props.smooth,
       symbol: config.symbol ?? props.symbol,
@@ -225,12 +243,13 @@
         opacity: props.lineOpacity
       },
       areaStyle: config.areaStyle,
-      emphasis: {
-        focus: 'series' as const,
-        lineStyle: {
-          width: (config.lineWidth ?? props.lineWidth) + (props.thickenOnEmphasis ? 1 : 0)
-        }
-      }
+      emphasis: props.thickenOnEmphasis
+        ? {
+            lineStyle: {
+              width: (config.lineWidth ?? props.lineWidth) + 1
+            }
+          }
+        : { disabled: true }
     }
   }
 
@@ -250,11 +269,27 @@
     if (isMultipleData.value) {
       const multiData = props.data as LineDataItem[]
       const markerParser = new DOMParser()
-      multiData.forEach((item, index) => {
+      const sortedItems = multiData
+        .map((item, index) => ({ item, index, value: item.data[dataIndex] }))
+        .sort((left, right) => {
+          if (left.value === null || left.value === undefined) {
+            return right.value === null || right.value === undefined ? left.index - right.index : 1
+          }
+          if (right.value === null || right.value === undefined) return -1
+          return right.value - left.value || left.index - right.index
+        })
+
+      sortedItems.forEach(({ item, index, value }) => {
         const row = document.createElement('div')
-        const value = item.data[dataIndex]
+        if (value === props.tooltipAlertValue) row.classList.add('text-danger')
+        const seriesParameter = parameterList.find(
+          (parameter) => parameter.seriesName === item.name
+        )
         const markerContent = echarts.format.getTooltipMarker({
-          color: getColor(undefined, index),
+          color:
+            props.useBuiltInPalette && typeof seriesParameter?.color === 'string'
+              ? seriesParameter.color
+              : getColor(undefined, index),
           renderMode: 'html'
         })
         const markerDocument = markerParser.parseFromString(
@@ -284,11 +319,16 @@
       animation: props.animationEnabled,
       animationDuration: props.animationEnabled && !isInitial ? 1300 : 0,
       animationDurationUpdate: props.animationEnabled && !isInitial ? 1300 : 0,
-      grid: getGridWithLegend(props.showLegend && isMultipleData.value, props.legendPosition, {
-        top: 15,
-        right: 15,
-        left: 0
-      }),
+      grid: getGridWithLegend(
+        props.showLegend && isMultipleData.value,
+        props.legendPosition,
+        {
+          top: 15,
+          right: 15,
+          left: 0
+        },
+        props.legendSpace
+      ),
       tooltip: props.showTooltip
         ? getTooltipStyle('axis', {
             ...(props.showAllTooltipSeries ? { formatter: formatAllSeriesTooltip } : {}),
@@ -357,7 +397,7 @@
     if (isMultipleData.value) {
       const multiData = animatedData.value as LineDataItem[]
       options.series = multiData.map((item, index) => {
-        const itemColor = getColor(props.colors[index], index)
+        const itemColor = props.useBuiltInPalette ? undefined : getColor(props.colors[index], index)
         const areaStyle = generateAreaStyle(item, itemColor)
 
         return createSeriesItem({
@@ -388,9 +428,69 @@
     return options
   }
 
+  /**
+   * 根据键盘事件同步 Shift 键状态。
+   * @param event 浏览器键盘事件。
+   * @returns 无返回值。
+   */
+  const syncShiftKeyState = (event: KeyboardEvent): void => {
+    isShiftPressed.value = event.shiftKey
+  }
+
+  /**
+   * 清除 Shift 键状态，避免窗口失焦后状态残留。
+   * @returns 无返回值。
+   */
+  const clearShiftKeyState = (): void => {
+    isShiftPressed.value = false
+  }
+
+  /**
+   * Shift 点击图例后仅保留对应曲线显示。
+   * @param parameters ECharts 图例选择事件参数。
+   * @returns 无返回值。
+   */
+  const handleLegendSelectChanged = (parameters: unknown): void => {
+    if (!props.shiftLegendExclusiveSelect || !isShiftPressed.value) return
+    if (
+      typeof parameters !== 'object' ||
+      parameters === null ||
+      !('name' in parameters) ||
+      typeof parameters.name !== 'string'
+    ) {
+      return
+    }
+
+    const chart = getChartInstance()
+    if (!chart) return
+
+    const seriesNames = (props.data as LineDataItem[]).map((item) => item.name)
+    seriesNames.forEach((name) => {
+      chart.dispatchAction({
+        type: name === parameters.name ? 'legendSelect' : 'legendUnSelect',
+        name
+      })
+    })
+  }
+
+  /**
+   * 为当前图表实例注册图例独占选择事件。
+   * @returns 无返回值。
+   */
+  const setupLegendInteraction = (): void => {
+    const chart = getChartInstance()
+    if (!chart) return
+
+    chart.off('legendselectchanged', handleLegendSelectChanged)
+    if (props.shiftLegendExclusiveSelect) {
+      chart.on('legendselectchanged', handleLegendSelectChanged)
+    }
+  }
+
   // 更新图表
   const updateChartOptions = (options: EChartsOption) => {
     initChart(options)
+    setupLegendInteraction()
   }
 
   // 初始化动画函数（优化：统一定时器管理，减少内存泄漏风险）
@@ -481,6 +581,7 @@
     getTooltipStyle,
     getLegendStyle,
     getGridWithLegend,
+    getChartInstance,
     isEmpty
   } = useChartComponent({
     props,
@@ -492,6 +593,7 @@
       () => props.lineOpacity,
       () => props.yAxisMax,
       () => props.valueUnit,
+      () => props.tooltipAlertValue,
       () => props.compactAxisLabels,
       () => props.xAxisLabelRotate,
       () => props.xAxisLabelMargin,
@@ -503,7 +605,9 @@
       () => props.emphasizeAxis,
       () => props.emphasizeYAxisName,
       () => props.compactTooltip,
-      () => props.thickenOnEmphasis
+      () => props.thickenOnEmphasis,
+      () => props.legendHoverLink,
+      () => props.shiftLegendExclusiveSelect
     ],
     onVisible: () => {
       // 当图表变为可见时，检查是否为空数据
@@ -530,6 +634,7 @@
       () => props.lineOpacity,
       () => props.yAxisMax,
       () => props.valueUnit,
+      () => props.tooltipAlertValue,
       () => props.compactAxisLabels,
       () => props.xAxisLabelRotate,
       () => props.xAxisLabelMargin,
@@ -541,7 +646,9 @@
       () => props.emphasizeAxis,
       () => props.emphasizeYAxisName,
       () => props.compactTooltip,
-      () => props.thickenOnEmphasis
+      () => props.thickenOnEmphasis,
+      () => props.legendHoverLink,
+      () => props.shiftLegendExclusiveSelect
     ],
     renderChart,
     { deep: true }
@@ -549,10 +656,17 @@
 
   // 生命周期
   onMounted(() => {
+    window.addEventListener('keydown', syncShiftKeyState)
+    window.addEventListener('keyup', syncShiftKeyState)
+    window.addEventListener('blur', clearShiftKeyState)
     renderChart()
   })
 
   onBeforeUnmount(() => {
+    window.removeEventListener('keydown', syncShiftKeyState)
+    window.removeEventListener('keyup', syncShiftKeyState)
+    window.removeEventListener('blur', clearShiftKeyState)
+    getChartInstance()?.off('legendselectchanged', handleLegendSelectChanged)
     clearAnimationTimers()
   })
 </script>

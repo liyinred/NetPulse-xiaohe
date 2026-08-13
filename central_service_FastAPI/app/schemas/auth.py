@@ -45,6 +45,7 @@ class UserInfoData(BaseModel):
     userId: int
     userName: str
     email: str
+    userLevel: int
     avatar: str | None = None
 
 

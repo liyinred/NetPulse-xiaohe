@@ -83,73 +83,6 @@ export const useChartOps = (): ChartThemeConfig => ({
     '#FFAF20',
     '#FA8A6C',
     '#FFAF20'
-  ],
-  /** glasbey_light 高区分度分类颜色组（前 64 色） */
-  categoricalColors: [
-    '#D70000',
-    '#028800',
-    '#B600FF',
-    '#06ACC6',
-    '#98FF00',
-    '#FFA530',
-    '#FF8FC8',
-    '#79525F',
-    '#00FECF',
-    '#B0A5FF',
-    '#94AD84',
-    '#9A6900',
-    '#376A62',
-    '#D3008C',
-    '#FEF590',
-    '#C86F66',
-    '#9EE3FF',
-    '#00C946',
-    '#A977AD',
-    '#B8BB02',
-    '#F4C0B1',
-    '#FF28FD',
-    '#F3CEFF',
-    '#009F7D',
-    '#FF6200',
-    '#56652B',
-    '#963F1F',
-    '#91318F',
-    '#FF3465',
-    '#A0E492',
-    '#8D9BB2',
-    '#829126',
-    '#AE093F',
-    '#78C7BB',
-    '#BC9258',
-    '#E58FFF',
-    '#72B9FF',
-    '#C6A5C1',
-    '#FF9171',
-    '#D3C37D',
-    '#BDEEDB',
-    '#6B8568',
-    '#926E56',
-    '#F9FF00',
-    '#BAC2E0',
-    '#AD577D',
-    '#FFCE03',
-    '#FF4AB1',
-    '#C25703',
-    '#5D8C90',
-    '#C244BD',
-    '#007540',
-    '#BA6FFE',
-    '#00D494',
-    '#00FF76',
-    '#49A251',
-    '#CC9891',
-    '#00EBEE',
-    '#DB7E01',
-    '#F8758A',
-    '#B99600',
-    '#C94248',
-    '#00D0FA',
-    '#765827'
   ]
 })
 
@@ -427,11 +360,19 @@ export function useChart(options: UseChartOptions = {}) {
     }
   }
 
-  // 根据图例位置计算 grid 配置
+  /**
+   * 根据图例位置计算绘图区配置。
+   * @param showLegend 是否显示图例。
+   * @param legendPosition 图例显示位置。
+   * @param baseGrid 基础 grid 配置。
+   * @param legendSpace 图例所在方向需要预留的空间。
+   * @returns 为图例留出空间后的 ECharts grid 配置。
+   */
   const getGridWithLegend = (
     showLegend: boolean,
     legendPosition: 'bottom' | 'top' | 'left' | 'right' = 'bottom',
-    baseGrid: any = {}
+    baseGrid: any = {},
+    legendSpace?: number
   ) => {
     const defaultGrid = {
       top: 15,
@@ -451,22 +392,22 @@ export function useChart(options: UseChartOptions = {}) {
       case 'bottom':
         return {
           ...defaultGrid,
-          bottom: 40
+          bottom: legendSpace ?? 40
         }
       case 'top':
         return {
           ...defaultGrid,
-          top: 40
+          top: legendSpace ?? 40
         }
       case 'left':
         return {
           ...defaultGrid,
-          left: 120
+          left: legendSpace ?? 120
         }
       case 'right':
         return {
           ...defaultGrid,
-          right: 120
+          right: legendSpace ?? 120
         }
       default:
         return defaultGrid

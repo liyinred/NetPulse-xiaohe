@@ -21,7 +21,7 @@
           <ElRadioButton value="1d">最近 1 天</ElRadioButton>
           <ElRadioButton value="2d">最近 2 天</ElRadioButton>
           <ElRadioButton value="7d">最近 7 天</ElRadioButton>
-          <ElRadioButton value="month">月份</ElRadioButton>
+          <ElRadioButton value="month">月份选择框</ElRadioButton>
         </ElRadioGroup>
         <ElDatePicker
           v-model="month"
@@ -34,13 +34,22 @@
           placeholder="选择月份"
           @change="handleMonthChange"
         />
+        <ElButton
+          :disabled="trendLoading || !sourceIpId || (rangeType === 'month' && !month)"
+          @click="loadTrend"
+        >
+          <ArtSvgIcon icon="ri:refresh-line" :class="{ 'animate-spin': trendLoading }" />
+          <span>刷新</span>
+        </ElButton>
       </div>
     </section>
 
     <ElCard class="min-h-0 flex-1" body-class="h-full min-h-0 flex flex-col">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-base font-medium text-g-900">{{ pageTitle }}趋势（{{ metricTitle }}）</h2>
-        <div class="flex flex-wrap items-center gap-3">
+        <h2 class="text-base font-medium text-g-900">
+          {{ protocolTitle }} {{ pageTitle }}趋势（{{ metricTitle }}）
+        </h2>
+        <div class="flex flex-wrap items-center gap-4">
           <ElRadioGroup v-model="protocolType" size="small" @change="handleProtocolChange">
             <ElRadioButton value="icmp">ICMP</ElRadioButton>
             <ElRadioButton value="tcp">TCP</ElRadioButton>
@@ -65,19 +74,19 @@
         height="100%"
         :x-axis-data="xAxisData"
         :data="chartSeries"
-        :colors="chartTheme.categoricalColors"
         :line-width="chartTheme.thinLineWidth"
-        :line-opacity="0.8"
+        :line-opacity="0.7"
         :loading="trendLoading"
         :y-axis-min="0"
         :y-axis-max="metric === 'loss' ? 100 : 300"
         :value-unit="metric === 'loss' ? '%' : 'ms'"
+        :tooltip-alert-value="metric === 'loss' ? 100 : 300"
         :animation-enabled="false"
         :zero-is-empty="false"
         :show-all-tooltip-series="true"
         :show-legend="true"
         :compact-axis-labels="true"
-        :x-axis-label-rotate="30"
+        :x-axis-label-rotate="20"
         :x-axis-label-margin="chartTheme.fontSize"
         :show-x-axis-tick="true"
         :x-axis-interval="xAxisInterval"
@@ -87,6 +96,10 @@
         :emphasize-axis="true"
         :compact-tooltip="true"
         :thicken-on-emphasis="false"
+        :use-built-in-palette="true"
+        :legend-space="chartTheme.fontSize * 8"
+        :legend-hover-link="false"
+        :shift-legend-exclusive-select="true"
         legend-position="top"
       />
     </ElCard>
@@ -121,6 +134,11 @@
     route.name === 'CrossProvinceDetection' ? 2 : 1
   )
   const pageTitle = computed(() => (probeMode.value === 1 ? '异网探测' : '跨省探测'))
+  /**
+   * 获取当前协议的大写标题前缀。
+   * @returns 当前协议名称。
+   */
+  const protocolTitle = computed(() => protocolType.value.toUpperCase())
   const metricTitle = computed(() => (metric.value === 'loss' ? '丢包率' : '平均延迟'))
 
   const timeIds = computed(() => {
@@ -169,8 +187,8 @@
     return data.series.map((seriesItem) => {
       const pointValues = new Map(
         seriesItem.points.map((point) => [
-          point.timeId,
-          selectedMetric === 'loss' ? point.lossRate : point.averageLatencyMs
+          point[0],
+          selectedMetric === 'loss' ? point[1] : point[2]
         ])
       )
       return {

@@ -31,6 +31,7 @@
   import { fetchGetUserList } from '@/api/system-manage'
   import { useTable } from '@/hooks/core/useTable'
   import { formatBeijingTime } from '@/utils/date'
+  import { getUserLevelConfig } from '@/utils/constants'
   import { ALERT_TYPE_CONFIG } from './alert-type'
   import UserDialog from './modules/user-dialog.vue'
   import UserSearch from './modules/user-search.vue'
@@ -53,29 +54,9 @@
     sortOrder: 'desc'
   })
 
-  const USER_LEVEL_CONFIG = {
-    1: { text: '普通用户', type: 'info' as const },
-    2: { text: '高级用户', type: 'warning' as const },
-    9: { text: '管理员', type: 'danger' as const }
-  }
-
   const SUBSCRIBE_STATUS_CONFIG = {
     0: { text: '未订阅', type: 'info' as const },
     1: { text: '已订阅', type: 'success' as const }
-  }
-
-  /**
-   * 获取用户等级的展示配置。
-   * @param userLevel 用户等级编码。
-   * @returns 等级文案和 ElTag 类型。
-   */
-  const getUserLevelConfig = (userLevel: number) => {
-    return (
-      USER_LEVEL_CONFIG[userLevel as keyof typeof USER_LEVEL_CONFIG] ?? {
-        text: '未知',
-        type: 'info' as const
-      }
-    )
   }
 
   /**

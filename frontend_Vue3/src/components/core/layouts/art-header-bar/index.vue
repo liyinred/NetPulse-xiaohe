@@ -6,12 +6,15 @@
       tabStyle === 'tab-card' || tabStyle === 'tab-google' ? 'mb-5 max-sm:mb-3 !bg-box' : ''
     ]"
   >
-    <div class="relative box-border flex-b h-15 leading-15 select-none">
-      <div class="flex-c flex-1 min-w-0 leading-15" style="display: flex">
+    <div
+      class="header-bar-row relative box-border h-15 leading-15 select-none"
+      :class="{ 'top-menu-layout': isTopMenu }"
+    >
+      <div class="header-leading flex-c flex-1 min-w-0 leading-15">
         <!-- 系统信息  -->
-        <div class="flex-c c-p" @click="toHome" v-if="isTopMenu">
-          <ArtLogo class="pl-4.5" />
-          <p v-if="width >= 1400" class="my-0 mx-2 ml-2 text-lg">{{ AppConfig.systemInfo.name }}</p>
+        <div v-if="isTopMenu" class="system-brand flex-c c-p" @click="toHome">
+          <ArtLogo size="var(--art-header-brand-logo-size)" />
+          <p v-if="width >= 1400" class="system-brand-name">{{ AppConfig.systemInfo.name }}</p>
         </div>
 
         <ArtLogo
@@ -46,14 +49,14 @@
           v-if="(shouldShowBreadcrumb && isLeftMenu) || (shouldShowBreadcrumb && isDualMenu)"
         />
 
-        <!-- 顶部菜单 -->
-        <ArtHorizontalMenu v-if="isTopMenu" :list="menuList" />
-
         <!-- 混合菜单-顶部 -->
         <ArtMixedMenu v-if="isTopLeftMenu" :list="menuList" />
       </div>
 
-      <div class="flex-c gap-2.5">
+      <!-- 顶部菜单 -->
+      <ArtHorizontalMenu v-if="isTopMenu" class="top-navigation" :list="menuList" />
+
+      <div class="header-actions flex-c gap-2.5">
         <!-- 搜索 -->
         <div
           v-if="shouldShowGlobalSearch"
@@ -75,6 +78,7 @@
         <ArtIconButton
           v-if="shouldShowFullscreen"
           :icon="isFullscreen ? 'ri:fullscreen-exit-line' : 'ri:fullscreen-fill'"
+          :circle="isTopMenu"
           :class="[!isFullscreen ? 'full-screen-btn' : 'exit-full-screen-btn', 'ml-3']"
           class="max-md:!hidden"
           @click="toggleFullScreen"
@@ -86,7 +90,11 @@
           popper-class="langDropDownStyle"
           v-if="shouldShowLanguage"
         >
-          <ArtIconButton icon="ri:translate-2" class="language-btn text-[19px]" />
+          <ArtIconButton
+            icon="ri:translate-2"
+            :circle="isTopMenu"
+            class="language-btn text-[19px]"
+          />
           <template #dropdown>
             <ElDropdownMenu>
               <div v-for="item in languageOptions" :key="item.value" class="lang-btn-item">
@@ -106,6 +114,7 @@
         <ArtIconButton
           v-if="shouldShowNotification"
           icon="ri:notification-2-line"
+          :circle="isTopMenu"
           class="notice-button relative"
           @click="visibleNotice"
         >
@@ -116,6 +125,7 @@
         <ArtIconButton
           v-if="shouldShowChat"
           icon="ri:message-3-line"
+          :circle="isTopMenu"
           class="chat-button relative"
           @click="openChat"
         >
@@ -127,7 +137,12 @@
           <ElPopover :visible="showSettingGuide" placement="bottom-start" :width="190" :offset="0">
             <template #reference>
               <div class="flex-cc">
-                <ArtIconButton icon="ri:settings-line" class="setting-btn" @click="openSetting" />
+                <ArtIconButton
+                  icon="ri:settings-line"
+                  :circle="isTopMenu"
+                  class="setting-btn"
+                  @click="openSetting"
+                />
               </div>
             </template>
             <template #default>
@@ -144,6 +159,7 @@
         <!-- 主题切换按钮 -->
         <ArtIconButton
           v-if="shouldShowThemeToggle"
+          :circle="isTopMenu"
           @click="themeAnimation"
           :icon="isDark ? 'ri:sun-fill' : 'ri:moon-line'"
         />
@@ -337,6 +353,69 @@
 </script>
 
 <style lang="scss" scoped>
+  .header-bar-row {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .top-menu-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: var(--art-header-column-gap);
+    align-items: center;
+    padding: 0 var(--art-header-inline-padding);
+
+    .header-leading {
+      min-width: 0;
+    }
+
+    .system-brand {
+      height: var(--art-header-brand-height);
+      padding: 0 var(--art-header-brand-padding);
+      background: var(--default-box-color);
+      border: 1px solid var(--art-card-border);
+      border-radius: calc(var(--custom-radius) + 8px);
+      box-shadow: var(--art-header-surface-shadow);
+    }
+
+    .system-brand-name {
+      margin: 0 0 0 var(--art-header-menu-shell-padding);
+      font-size: var(--art-header-brand-name-size);
+      font-weight: 600;
+      line-height: 1;
+      color: var(--art-gray-800);
+      white-space: nowrap;
+    }
+
+    .top-navigation {
+      min-width: 0;
+      max-width: min(var(--art-header-menu-max-width), var(--art-header-menu-viewport-width));
+    }
+
+    .header-actions {
+      justify-content: flex-end;
+      min-width: 0;
+    }
+
+    .header-actions :deep(.rounded-full) {
+      background: var(--default-box-color);
+      border: 1px solid var(--art-card-border);
+      box-shadow: var(--art-header-control-shadow);
+    }
+
+    .header-actions :deep(.rounded-full:hover) {
+      color: var(--theme-color);
+      background: var(--art-hover-color);
+      border-color: color-mix(in srgb, var(--theme-color) 30%, var(--art-card-border));
+    }
+
+    .header-actions :deep(img.rounded-full) {
+      box-sizing: border-box;
+      border: 1px solid var(--art-card-border);
+      box-shadow: var(--art-header-control-shadow);
+    }
+  }
+
   /* Custom animations */
   @keyframes rotate180 {
     0% {
@@ -465,6 +544,33 @@
 
   /* iPad breakpoint adjustments */
   @media screen and (width <= 768px) {
+    .top-menu-layout {
+      display: flex;
+      gap: var(--art-header-compact-gap);
+      padding: 0 var(--art-header-compact-padding);
+
+      .header-leading {
+        flex: 0 0 auto;
+      }
+
+      .system-brand {
+        justify-content: center;
+        width: var(--art-header-brand-compact-size);
+        height: var(--art-header-brand-compact-size);
+        padding: 0;
+      }
+
+      .top-navigation {
+        flex: 1;
+        max-width: none;
+      }
+
+      .header-actions {
+        flex: 0 0 auto;
+        gap: var(--art-header-action-gap);
+      }
+    }
+
     .logo2 {
       display: block !important;
     }

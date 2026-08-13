@@ -87,6 +87,7 @@ declare namespace Api {
       userId: number
       userName: string
       email: string
+      userLevel: number
       avatar?: string
     }
   }
@@ -110,11 +111,7 @@ declare namespace Api {
     }
 
     /** 单个自然分钟的聚合探测值 */
-    interface ProbeTrendPoint {
-      timeId: number
-      lossRate: number
-      averageLatencyMs: number
-    }
+    type ProbeTrendPoint = [timeId: number, lossRate: number, averageLatencyMs: number]
 
     /** 单个目标 IP 的探测趋势 */
     interface ProbeTrendSeries {

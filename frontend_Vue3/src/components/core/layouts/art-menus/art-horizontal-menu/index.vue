@@ -1,8 +1,8 @@
 <!-- 水平菜单 -->
 <template>
-  <div class="flex-1 overflow-hidden">
+  <nav class="horizontal-menu-shell overflow-hidden" aria-label="主导航">
     <ElMenu
-      :ellipsis="true"
+      :ellipsis="false"
       mode="horizontal"
       :default-active="routerPath"
       :text-color="isDark ? 'var(--art-gray-800)' : 'var(--art-gray-700)'"
@@ -11,7 +11,7 @@
       :show-timeout="50"
       :hide-timeout="50"
       popper-class="horizontal-menu-popper"
-      class="w-full justify-center border-none"
+      class="horizontal-menu w-full justify-center border-none"
     >
       <HorizontalSubmenu
         v-for="item in filteredMenuItems"
@@ -21,7 +21,7 @@
         :level="0"
       />
     </ElMenu>
-  </div>
+  </nav>
 </template>
 
 <script setup lang="ts">
@@ -90,21 +90,81 @@
   }
 </script>
 
-<style scoped>
-  /* Remove el-menu bottom border */
-  :deep(.el-menu) {
+<style lang="scss" scoped>
+  .horizontal-menu-shell {
+    box-sizing: border-box;
+    height: var(--art-header-menu-height);
+    padding: var(--art-header-menu-shell-padding);
+    background: var(--default-box-color);
+    border: 1px solid var(--art-card-border);
+    border-radius: calc(var(--custom-radius) + 10px);
+    box-shadow: var(--art-header-surface-shadow);
+  }
+
+  :deep(.horizontal-menu) {
+    --el-menu-horizontal-height: var(--art-header-menu-item-height);
+
+    gap: var(--art-header-menu-item-gap);
+    height: var(--art-header-menu-item-height);
     border-bottom: none !important;
   }
 
-  /* Remove default styles for first-level menu items */
-  :deep(.el-menu-item[tabindex='0']) {
-    background-color: transparent !important;
-    border: none !important;
+  :deep(.el-menu--horizontal > .el-menu-item),
+  :deep(.el-menu--horizontal > .el-sub-menu > .el-sub-menu__title) {
+    height: var(--art-header-menu-item-height);
+    padding: 0 var(--art-header-menu-item-padding) !important;
+    line-height: var(--art-header-menu-item-height);
+    color: var(--art-gray-700);
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: calc(var(--custom-radius) + 6px);
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease,
+      border-color 0.2s ease;
   }
 
-  /* Remove bottom border from submenu titles */
-  :deep(.el-menu--horizontal .el-sub-menu__title) {
-    padding: 0 30px 0 10px !important;
-    border: 0 !important;
+  :deep(.el-menu--horizontal > .el-menu-item:hover),
+  :deep(.el-menu--horizontal > .el-sub-menu:hover > .el-sub-menu__title) {
+    color: var(--theme-color) !important;
+    background: var(--art-hover-color) !important;
+  }
+
+  :deep(.el-menu--horizontal > .el-menu-item.is-active),
+  :deep(.el-menu--horizontal > .el-sub-menu.is-active > .el-sub-menu__title) {
+    color: var(--theme-color) !important;
+    background: color-mix(in srgb, var(--theme-color) 8%, var(--default-box-color)) !important;
+    border-color: color-mix(in srgb, var(--theme-color) 55%, var(--default-border)) !important;
+  }
+
+  :deep(.el-menu--horizontal > .el-menu-item.is-active .art-svg-icon),
+  :deep(.el-menu--horizontal > .el-sub-menu.is-active > .el-sub-menu__title .art-svg-icon) {
+    color: var(--theme-color) !important;
+  }
+
+  :deep(.el-menu--horizontal > .el-menu-item:focus-visible),
+  :deep(.el-menu--horizontal > .el-sub-menu > .el-sub-menu__title:focus-visible) {
+    outline: 2px solid color-mix(in srgb, var(--theme-color) 55%, transparent);
+    outline-offset: -2px;
+  }
+
+  :deep(.el-menu--horizontal > .el-sub-menu > .el-sub-menu__title) {
+    padding-right: var(--art-header-menu-submenu-padding) !important;
+  }
+
+  :deep(.el-menu--horizontal > .el-sub-menu > .el-sub-menu__title .el-sub-menu__icon-arrow) {
+    right: var(--art-header-menu-arrow-offset);
+  }
+
+  @media (width <= 768px) {
+    .horizontal-menu-shell {
+      height: var(--art-header-menu-compact-height);
+    }
+
+    :deep(.el-menu--horizontal > .el-menu-item),
+    :deep(.el-menu--horizontal > .el-sub-menu > .el-sub-menu__title) {
+      padding-right: var(--art-header-menu-item-compact-padding) !important;
+      padding-left: var(--art-header-menu-item-compact-padding) !important;
+    }
   }
 </style>

@@ -107,16 +107,11 @@ class ProbeNodesResponse(BaseModel):
     data: list[ProbeNodeItem]
 
 
-class ProbeTrendPoint(BaseModel):
-    """保存一个目标 IP 在自然分钟窗口内的协议探测值。"""
-
-    timeId: int
-    lossRate: float
-    averageLatencyMs: float
+ProbeTrendPoint = tuple[int, float, float]
 
 
 class ProbeTrendSeries(BaseModel):
-    """保存一个目标 IP 的探测趋势序列。"""
+    """保存一个目标 IP 的探测趋势序列，数据点依次为时间、丢包率和延迟。"""
 
     targetIpId: int
     targetIp: str

@@ -26,9 +26,14 @@
             src="/user_avatar.png"
           />
           <div class="w-[calc(100%-60px)] h-full">
-            <span class="block text-sm font-medium text-g-800 truncate">{{
-              userInfo.userName
-            }}</span>
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="min-w-0 truncate text-sm font-medium text-g-800">
+                {{ userInfo.userName }}
+              </span>
+              <ElTag class="shrink-0" size="small" :type="userLevelConfig.type">
+                {{ userLevelConfig.text }}
+              </ElTag>
+            </div>
             <span class="block mt-0.5 text-xs text-g-500 truncate">{{ userInfo.email }}</span>
           </div>
         </div>
@@ -51,6 +56,7 @@
   import { useI18n } from 'vue-i18n'
   import { ElMessageBox } from 'element-plus'
   import { useUserStore } from '@/store/modules/user'
+  import { getUserLevelConfig } from '@/utils/constants'
   import { mittBus } from '@/utils/sys'
 
   defineOptions({ name: 'ArtUserMenu' })
@@ -59,6 +65,7 @@
   const userStore = useUserStore()
 
   const { getUserInfo: userInfo } = storeToRefs(userStore)
+  const userLevelConfig = computed(() => getUserLevelConfig(userInfo.value.userLevel))
   const userMenuPopover = ref()
 
   /**
