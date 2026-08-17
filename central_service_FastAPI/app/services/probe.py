@@ -6,7 +6,7 @@ from ipaddress import IPv4Address, IPv6Address, ip_address
 from time import time
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -22,7 +22,10 @@ from app.models.user import User
 from app.schemas.probe import (
     ProbeAlertsRequest,
     ProbeNodeItem,
+    ProbeProtocolSummary,
     ProbeRangeType,
+    ProbeReportData,
+    ProbeReportRow,
     ProbeResultRequest,
     ProbeTarget,
     ProbeTargetsRequest,
@@ -33,6 +36,8 @@ from app.schemas.probe import (
 )
 from app.services.device import _upsert_ip_record
 from app.services.network import (
+    ISP_NAMES,
+    PROVINCE_NAMES,
     format_probe_node_label,
     format_probe_node_name,
     lookup_network,
@@ -45,11 +50,185 @@ PROTOCOL_CODES = {"icmp": 1, "tcp": 2, "udp": 3}
 PROBE_MODE_NAMES = {"cross_isp": "异网", "cross_province": "跨省"}
 ALERT_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 PROBE_RANGE_DAYS = {"1d": 1, "2d": 2, "7d": 7}
+REPORT_LOSS_FAILURE_RATE = 100.0
+REPORT_LATENCY_FAILURE_MS = 300.0
 PROBE_STATE_MODELS = {
     "icmp": ICMPProbeState,
     "tcp": TCPProbeState,
     "udp": UDPProbeState,
 }
+
+
+def _get_user_probe_source_network(
+    session: Session,
+    user_id: int,
+    source_ip_id: int,
+) -> tuple[int | None, int | None]:
+    """校验探测源节点归属并返回其网络属性。
+
+    参数:
+        session: 当前数据库会话。
+        user_id: 当前登录用户的内部主键。
+        source_ip_id: 用户选择的源 IP 记录主键。
+    返回:
+        源节点的省份编码和运营商编码。
+    """
+    source_record = session.execute(
+        select(IPDict.province, IPDict.isp)
+        .join(Device, IPDict.device_related_id == Device.id)
+        .where(IPDict.id == source_ip_id, Device.user_id == user_id)
+    ).one_or_none()
+    if source_record is None:
+        raise ValueError("探测节点不存在或不属于当前用户")
+    return source_record.province, source_record.isp
+
+
+def _build_probe_report(
+    session: Session,
+    user_id: int,
+    source_ip_id: int,
+    source_province: int | None,
+    source_isp: int | None,
+    probe_mode: int,
+    start_time: int,
+    end_time: int,
+) -> ProbeReportData:
+    """按目标省份和运营商汇总时间窗口内的三协议探测结果。
+
+    参数:
+        session: 当前数据库会话。
+        user_id: 当前登录用户的内部主键。
+        source_ip_id: 用户选择的源 IP 记录主键。
+        source_province: 源节点省份编码。
+        source_isp: 源节点运营商编码。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+        start_time: 查询起始 Unix 时间戳。
+        end_time: 查询结束 Unix 时间戳。
+    返回:
+        覆盖概况及按省份、运营商聚合的三协议平均结果，延迟平均值排除 300ms 超时。
+    """
+    rows_by_network: dict[tuple[int | None, int | None], ProbeReportRow] = {}
+    for protocol_type, state_model in PROBE_STATE_MODELS.items():
+        records = session.execute(
+            select(
+                IPDict.province,
+                IPDict.isp,
+                func.avg(state_model.loss_rate).label("loss_rate"),
+                func.avg(
+                    case(
+                        (
+                            state_model.rtt_ms < REPORT_LATENCY_FAILURE_MS,
+                            state_model.rtt_ms,
+                        )
+                    )
+                ).label("rtt_ms"),
+            )
+            .join(IPDict, IPDict.id == state_model.target_ip_id)
+            .where(
+                state_model.source_ip_id == source_ip_id,
+                state_model.probe_mode == probe_mode,
+                state_model.time_id.between(start_time, end_time),
+                state_model.device_related_id.in_(
+                    select(Device.id).where(Device.user_id == user_id)
+                ),
+            )
+            .group_by(IPDict.province, IPDict.isp)
+        ).all()
+        for record in records:
+            network_key = (record.province, record.isp)
+            report_row = rows_by_network.setdefault(
+                network_key,
+                ProbeReportRow(
+                    province=record.province,
+                    provinceName=PROVINCE_NAMES.get(record.province, "未知"),
+                    isp=record.isp,
+                    ispName=ISP_NAMES.get(record.isp, "未知"),
+                    isCrossIsp=(
+                        source_isp is not None
+                        and record.isp is not None
+                        and record.isp != source_isp
+                    ),
+                    isCrossProvince=(
+                        source_province is not None
+                        and record.province is not None
+                        and record.province != source_province
+                    ),
+                ),
+            )
+            setattr(
+                report_row,
+                protocol_type,
+                ProbeProtocolSummary(
+                    lossRate=round(float(record.loss_rate) / 10, 1),
+                    averageLatencyMs=(
+                        round(float(record.rtt_ms), 1)
+                        if record.rtt_ms is not None
+                        else None
+                    ),
+                ),
+            )
+
+    rows = sorted(
+        rows_by_network.values(),
+        key=lambda row: (row.province or 0, row.isp or 0),
+    )
+    covered_provinces = _apply_probe_report_coverage(rows)
+    return ProbeReportData(
+        sourceProvinceName=PROVINCE_NAMES.get(source_province, "未知"),
+        sourceIspName=ISP_NAMES.get(source_isp, "未知"),
+        crossIspCovered=any(row.isCovered and row.isCrossIsp for row in rows),
+        crossProvinceCovered=any(
+            row.isCovered and row.isCrossProvince for row in rows
+        ),
+        coveredProvinces=covered_provinces,
+        rows=rows,
+    )
+
+
+def _has_probe_report_failure(row: ProbeReportRow) -> bool:
+    """判断报告分组是否包含达到失败阈值的协议指标。
+
+    参数:
+        row: 按目标省份和运营商聚合的报告分组。
+    返回:
+        任一协议的平均丢包或平均延迟达到失败阈值时返回 True。
+    """
+    summaries = (row.icmp, row.tcp, row.udp)
+    return any(
+        summary is not None
+        and (
+            summary.lossRate >= REPORT_LOSS_FAILURE_RATE
+            or summary.averageLatencyMs is None
+            or summary.averageLatencyMs >= REPORT_LATENCY_FAILURE_MS
+        )
+        for summary in summaries
+    )
+
+
+def _apply_probe_report_coverage(rows: list[ProbeReportRow]) -> list[str]:
+    """按省份传播失败状态并返回仍然覆盖的省份名称。
+
+    参数:
+        rows: 已完成三协议聚合的报告分组。
+    返回:
+        未出现失败阈值且网络属性已知的去重省份名称。
+    """
+    uncovered_provinces = {
+        row.province for row in rows if _has_probe_report_failure(row)
+    }
+    for row in rows:
+        row.isCovered = row.province not in uncovered_provinces
+    return list(
+        dict.fromkeys(
+            row.provinceName
+            for row in rows
+            if (
+                row.isCovered
+                and row.province is not None
+                and row.provinceName != "未知"
+            )
+        )
+    )
 
 
 @dataclass
@@ -501,6 +680,49 @@ def _resolve_probe_time_range(
     return int(month_start.timestamp()), range_end
 
 
+def get_user_probe_report(
+    user_id: int,
+    source_ip_id: int,
+    probe_mode: int,
+    range_type: ProbeRangeType,
+    month: str | None = None,
+    current_time: int | None = None,
+) -> ProbeReportData:
+    """查询用户节点在指定探测模式和时间范围内的概览报告。
+
+    参数:
+        user_id: 当前登录用户的内部主键。
+        source_ip_id: 用户选择的源 IP 记录主键。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+        range_type: 最近 1、2、7 天或月份范围。
+        month: 月份范围使用的 YYYY-MM 字符串。
+        current_time: 可选的当前时间戳，主要用于确定相对范围。
+    返回:
+        按省份、运营商聚合的三协议概览报告。
+    """
+    start_time, end_time = _resolve_probe_time_range(
+        range_type,
+        month,
+        int(time()) if current_time is None else current_time,
+    )
+    with SessionLocal() as session:
+        source_province, source_isp = _get_user_probe_source_network(
+            session,
+            user_id,
+            source_ip_id,
+        )
+        return _build_probe_report(
+            session,
+            user_id,
+            source_ip_id,
+            source_province,
+            source_isp,
+            probe_mode,
+            start_time,
+            end_time,
+        )
+
+
 def get_user_probe_trend(
     user_id: int,
     source_ip_id: int,
@@ -531,13 +753,7 @@ def get_user_probe_trend(
     state_model = PROBE_STATE_MODELS[protocol_type]
 
     with SessionLocal() as session:
-        source_exists = session.scalar(
-            select(IPDict.id)
-            .join(Device, IPDict.device_related_id == Device.id)
-            .where(IPDict.id == source_ip_id, Device.user_id == user_id)
-        )
-        if source_exists is None:
-            raise ValueError("探测节点不存在或不属于当前用户")
+        _get_user_probe_source_network(session, user_id, source_ip_id)
 
         records = session.execute(
             select(
@@ -560,7 +776,6 @@ def get_user_probe_trend(
             )
             .order_by(IPDict.id, state_model.time_id)
         ).all()
-
     series_by_target: dict[int, ProbeTrendSeries] = {}
     for record in records:
         series = series_by_target.setdefault(

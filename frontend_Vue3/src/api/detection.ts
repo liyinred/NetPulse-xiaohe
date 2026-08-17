@@ -21,3 +21,15 @@ export function fetchGetProbeTrend(params: Api.Detection.ProbeTrendParams) {
     params
   })
 }
+
+/**
+ * 获取指定节点、模式和北京时间范围的概览报告。
+ * @param params 探测节点、模式和时间范围参数。
+ * @returns 按省份和运营商聚合的三协议概览报告。
+ */
+export function fetchGetProbeReport(params: Api.Detection.ProbeReportParams) {
+  return request.get<Api.Detection.ProbeReportData>({
+    url: '/api/probes/report',
+    params
+  })
+}

@@ -136,6 +136,7 @@
     "subTitle": "关注服务号进入 NetPulse",
     "scan": {
       "qrAlt": "微信服务号登录二维码",
+      "prefix": "扫码关注",
       "instruction": "小合科技微信服务号",
       "refresh": "刷新二维码",
       "expiresIn": "二维码有效期 {time}",

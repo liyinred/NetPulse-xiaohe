@@ -10,6 +10,7 @@ from app.schemas.probe import (
     ProbeAlertsRequest,
     ProbeNodesResponse,
     ProbeRangeType,
+    ProbeReportResponse,
     ProbeResultRequest,
     ProbeTargetsRequest,
     ProbeTargetsResponse,
@@ -20,6 +21,7 @@ from app.services.auth import get_current_user
 from app.services.network import IPLookupError
 from app.services.probe import (
     discover_probe_targets,
+    get_user_probe_report,
     get_user_probe_trend,
     list_user_probe_nodes,
     save_probe_alerts,
@@ -78,6 +80,38 @@ def get_probe_trend(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ProbeTrendResponse(data=data)
+
+
+@web_router.get("/report", response_model=ProbeReportResponse)
+def get_probe_report(
+    user: Annotated[User, Depends(get_current_user)],
+    source_ip_id: int = Query(alias="sourceIpId", ge=1),
+    probe_mode: int = Query(alias="probeMode", ge=1, le=2),
+    range_type: ProbeRangeType = Query(alias="rangeType"),
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+) -> ProbeReportResponse:
+    """查询当前用户指定节点和探测模式的概览报告。
+
+    参数:
+        user: JWT 认证依赖解析出的当前用户。
+        source_ip_id: 用户选择的源 IP 记录主键。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+        range_type: 最近 1、2、7 天或月份范围。
+        month: 月份范围使用的 YYYY-MM 字符串。
+    返回:
+        统一响应包装的三协议概览报告。
+    """
+    try:
+        data = get_user_probe_report(
+            user.id,
+            source_ip_id,
+            probe_mode,
+            range_type,
+            month,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ProbeReportResponse(data=data)
 
 
 @router.post(

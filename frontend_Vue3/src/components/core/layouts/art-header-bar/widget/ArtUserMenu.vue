@@ -38,11 +38,6 @@
           </div>
         </div>
         <ul class="py-4 mt-3 border-t border-g-300/80">
-          <li class="btn-item" @click="lockScreen()">
-            <ArtSvgIcon icon="ri:lock-line" />
-            <span>{{ $t('topBar.user.lockScreen') }}</span>
-          </li>
-          <div class="w-full h-px my-2 bg-g-300/80"></div>
           <div class="log-out c-p" @click="loginOut">
             {{ $t('topBar.user.logout') }}
           </div>
@@ -57,7 +52,6 @@
   import { ElMessageBox } from 'element-plus'
   import { useUserStore } from '@/store/modules/user'
   import { getUserLevelConfig } from '@/utils/constants'
-  import { mittBus } from '@/utils/sys'
 
   defineOptions({ name: 'ArtUserMenu' })
 
@@ -67,13 +61,6 @@
   const { getUserInfo: userInfo } = storeToRefs(userStore)
   const userLevelConfig = computed(() => getUserLevelConfig(userInfo.value.userLevel))
   const userMenuPopover = ref()
-
-  /**
-   * 打开锁屏功能
-   */
-  const lockScreen = (): void => {
-    mittBus.emit('openLockScreen')
-  }
 
   /**
    * 用户登出确认

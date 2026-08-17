@@ -121,13 +121,47 @@ declare namespace Api {
       points: ProbeTrendPoint[]
     }
 
-    /** 探测趋势查询参数 */
-    interface ProbeTrendParams {
+    /** 单个协议的报告聚合结果 */
+    interface ProbeProtocolSummary {
+      lossRate: number
+      averageLatencyMs: number | null
+    }
+
+    /** 同省份、同运营商目标节点的报告分组 */
+    interface ProbeReportRow {
+      province: number | null
+      provinceName: string
+      isp: number | null
+      ispName: string
+      isCrossIsp: boolean
+      isCrossProvince: boolean
+      isCovered: boolean
+      icmp: ProbeProtocolSummary | null
+      tcp: ProbeProtocolSummary | null
+      udp: ProbeProtocolSummary | null
+    }
+
+    /** 当前节点和时间窗口的概括性覆盖报告 */
+    interface ProbeReportData {
+      sourceProvinceName: string
+      sourceIspName: string
+      crossIspCovered: boolean
+      crossProvinceCovered: boolean
+      coveredProvinces: string[]
+      rows: ProbeReportRow[]
+    }
+
+    /** 探测概览查询参数 */
+    interface ProbeReportParams {
       sourceIpId: number
       probeMode: ProbeMode
-      protocolType: ProtocolType
       rangeType: ProbeRangeType
       month?: string
+    }
+
+    /** 探测趋势查询参数 */
+    interface ProbeTrendParams extends ProbeReportParams {
+      protocolType: ProtocolType
     }
 
     /** 探测趋势查询结果 */

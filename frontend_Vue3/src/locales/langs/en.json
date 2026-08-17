@@ -136,6 +136,7 @@
     "subTitle": "Use the official account to securely enter NetPulse",
     "scan": {
       "qrAlt": "WeChat official account sign-in QR code",
+      "prefix": "Scan with WeChat",
       "instruction": "NetPulse WeChat official account",
       "refresh": "Refresh QR code",
       "expiresIn": "QR code expires in {time}",

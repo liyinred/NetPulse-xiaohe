@@ -8,10 +8,12 @@
     }"
   >
     <RouterView></RouterView>
+    <LoginDialog />
   </ElConfigProvider>
 </template>
 
 <script setup lang="ts">
+  import LoginDialog from './components/core/views/login/LoginDialog.vue'
   import { useUserStore } from './store/modules/user'
   import zh from 'element-plus/es/locale/lang/zh-cn'
   import en from 'element-plus/es/locale/lang/en'

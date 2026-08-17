@@ -119,6 +119,47 @@ class ProbeTrendSeries(BaseModel):
     points: list[ProbeTrendPoint]
 
 
+class ProbeProtocolSummary(BaseModel):
+    """保存一个协议在报告分组中的平均探测结果。"""
+
+    lossRate: float
+    averageLatencyMs: float | None
+
+
+class ProbeReportRow(BaseModel):
+    """保存同省份、同运营商目标节点的三协议汇总。"""
+
+    province: int | None
+    provinceName: str
+    isp: int | None
+    ispName: str
+    isCrossIsp: bool
+    isCrossProvince: bool
+    isCovered: bool = True
+    icmp: ProbeProtocolSummary | None = None
+    tcp: ProbeProtocolSummary | None = None
+    udp: ProbeProtocolSummary | None = None
+
+
+class ProbeReportData(BaseModel):
+    """保存当前节点和时间窗口的概括性覆盖报告。"""
+
+    sourceProvinceName: str
+    sourceIspName: str
+    crossIspCovered: bool
+    crossProvinceCovered: bool
+    coveredProvinces: list[str]
+    rows: list[ProbeReportRow]
+
+
+class ProbeReportResponse(BaseModel):
+    """探测概览报告的统一响应。"""
+
+    code: int = 200
+    msg: str = "探测概览获取成功"
+    data: ProbeReportData
+
+
 class ProbeTrendData(BaseModel):
     """保存指定查询范围及其中的目标 IP 趋势序列。"""
 

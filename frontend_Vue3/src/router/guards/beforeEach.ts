@@ -43,7 +43,6 @@ import { useUserStore } from '@/store/modules/user'
 import { useMenuStore } from '@/store/modules/menu'
 import { setWorktab } from '@/utils/navigation'
 import { setPageTitle } from '@/utils/router'
-import { RoutesAlias } from '../routesAlias'
 import { staticRoutes } from '../routes/staticRoutes'
 import { loadingService } from '@/utils/ui'
 import { useCommon } from '@/hooks/core/useCommon'
@@ -206,17 +205,14 @@ function handleLoginStatus(
   userStore: ReturnType<typeof useUserStore>,
   next: NavigationGuardNext
 ): boolean {
-  // 已登录或访问登录页或静态路由，直接放行
-  if (userStore.isLogin || to.path === RoutesAlias.Login || isStaticRoute(to.path)) {
+  // 已登录或访问静态路由，直接放行
+  if (userStore.isLogin || isStaticRoute(to.path)) {
     return true
   }
 
-  // 未登录且访问需要权限的页面，跳转到登录页并携带 redirect 参数
-  userStore.logOut()
-  next({
-    name: 'Login',
-    query: { redirect: to.fullPath }
-  })
+  // 未登录访问受保护页面时保留目标地址，全局登录弹窗由用户状态自动打开
+  userStore.setLoginRedirectPath(to.fullPath)
+  next(false)
   return false
 }
 
@@ -345,6 +341,7 @@ async function handleDynamicRoutes(
     // 401 错误：axios 拦截器已处理退出登录，取消当前导航
     if (isUnauthorizedError(error)) {
       // 重置状态，允许重新登录后再次初始化
+      useUserStore().setLoginRedirectPath(to.fullPath)
       routeInitInProgress = false
       next(false)
       return

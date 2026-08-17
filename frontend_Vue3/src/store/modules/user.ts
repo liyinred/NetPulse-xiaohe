@@ -66,6 +66,8 @@ export const useUserStore = defineStore(
     const accessToken = ref('')
     // 刷新令牌
     const refreshToken = ref('')
+    // 登录成功后需要恢复的访问地址
+    const loginRedirectPath = ref('/')
 
     // 计算属性：获取用户信息
     const getUserInfo = computed(() => info.value)
@@ -136,8 +138,17 @@ export const useUserStore = defineStore(
     }
 
     /**
+     * 设置登录成功后需要恢复的访问地址。
+     * @param path 待恢复的站内完整路径。
+     * @returns 无返回值。
+     */
+    const setLoginRedirectPath = (path: string): void => {
+      loginRedirectPath.value = path
+    }
+
+    /**
      * 退出登录
-     * 清空所有用户相关状态并跳转到登录页
+     * 清空所有用户相关状态并打开登录弹窗
      * 如果是同一账号重新登录，保留工作台标签页
      */
     const logOut = () => {
@@ -147,6 +158,8 @@ export const useUserStore = defineStore(
         localStorage.setItem(StorageConfig.LAST_USER_ID_KEY, String(currentUserId))
       }
 
+      // 保存登录后需要恢复的当前地址
+      loginRedirectPath.value = router.currentRoute.value.fullPath
       // 清空用户信息
       info.value = {}
       // 重置登录状态
@@ -166,13 +179,6 @@ export const useUserStore = defineStore(
       useMenuStore().setHomePath('')
       // 重置路由状态
       resetRouterState(500)
-      // 跳转到登录页，携带当前路由作为 redirect 参数
-      const currentRoute = router.currentRoute.value
-      const redirect = currentRoute.path !== '/login' ? currentRoute.fullPath : undefined
-      router.push({
-        name: 'Login',
-        query: redirect ? { redirect } : undefined
-      })
     }
 
     /**
@@ -212,6 +218,7 @@ export const useUserStore = defineStore(
       searchHistory,
       accessToken,
       refreshToken,
+      loginRedirectPath,
       getUserInfo,
       getSettingState,
       getWorktabState,
@@ -222,6 +229,7 @@ export const useUserStore = defineStore(
       setLockStatus,
       setLockPassword,
       setToken,
+      setLoginRedirectPath,
       logOut,
       checkAndClearWorktabs
     }

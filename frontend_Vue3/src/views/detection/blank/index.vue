@@ -1,5 +1,5 @@
 <template>
-  <div class="probe-trend-page art-full-height gap-3">
+  <div class="probe-trend-page flex flex-col gap-3">
     <section class="art-card-xs flex flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
       <div class="flex min-w-0 flex-1 items-center gap-3">
         <span class="shrink-0 text-sm text-g-700">探测节点</span>
@@ -35,16 +35,111 @@
           @change="handleMonthChange"
         />
         <ElButton
-          :disabled="trendLoading || !sourceIpId || (rangeType === 'month' && !month)"
-          @click="loadTrend"
+          :disabled="
+            reportLoading || trendLoading || !sourceIpId || (rangeType === 'month' && !month)
+          "
+          @click="loadProbeData"
         >
-          <ArtSvgIcon icon="ri:refresh-line" :class="{ 'animate-spin': trendLoading }" />
+          <ArtSvgIcon
+            icon="ri:refresh-line"
+            :class="{ 'animate-spin': reportLoading || trendLoading }"
+          />
           <span>刷新</span>
         </ElButton>
       </div>
     </section>
 
-    <ElCard class="min-h-0 flex-1" body-class="h-full min-h-0 flex flex-col">
+    <ElCard v-loading="reportLoading">
+      <ElDescriptions v-if="reportData" :column="3" border>
+        <ElDescriptionsItem label="源节点归属">
+          {{ reportData.sourceProvinceName }}{{ reportData.sourceIspName }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem v-if="probeMode === 1" label="异网能力">
+          <ElTag :type="reportData.crossIspCovered ? 'success' : 'info'">
+            {{ reportData.crossIspCovered ? '可异网' : '不可异网' }}
+          </ElTag>
+        </ElDescriptionsItem>
+        <ElDescriptionsItem v-else label="跨省能力">
+          <ElTag :type="reportData.crossProvinceCovered ? 'success' : 'info'">
+            {{ reportData.crossProvinceCovered ? '可跨省' : '不可跨省' }}
+          </ElTag>
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="覆盖省份">
+          {{ reportData.coveredProvinces.join('、') || '暂无' }}
+        </ElDescriptionsItem>
+      </ElDescriptions>
+
+      <ElTable
+        class="mt-4"
+        :data="reportData?.rows ?? []"
+        border
+        empty-text="当前时间窗口暂无探测结果"
+      >
+        <ElTableColumn prop="provinceName" label="省份" />
+        <ElTableColumn prop="ispName" label="运营商" />
+        <ElTableColumn label="覆盖情况">
+          <template #default="{ row }">
+            <span :class="{ 'text-amber-800 dark:text-amber-600': !row.isCrossIsp }">
+              {{ row.isCrossIsp ? '异网' : '同网' }}
+            </span>
+            /
+            <span :class="{ 'text-amber-800 dark:text-amber-600': !row.isCrossProvince }">
+              {{ row.isCrossProvince ? '跨省' : '同省' }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="ICMP" align="center">
+          <ElTableColumn label="平均丢包" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isReportMetricAlert(row.icmp, 'loss') }">
+                {{ formatReportMetric(row.icmp, 'loss') }}
+              </span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="平均延迟" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isReportMetricAlert(row.icmp, 'latency') }">
+                {{ formatReportMetric(row.icmp, 'latency') }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTableColumn>
+        <ElTableColumn label="TCP" align="center">
+          <ElTableColumn label="平均丢包" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isReportMetricAlert(row.tcp, 'loss') }">
+                {{ formatReportMetric(row.tcp, 'loss') }}
+              </span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="平均延迟" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isReportMetricAlert(row.tcp, 'latency') }">
+                {{ formatReportMetric(row.tcp, 'latency') }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTableColumn>
+        <ElTableColumn label="UDP" align="center">
+          <ElTableColumn label="平均丢包" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isReportMetricAlert(row.udp, 'loss') }">
+                {{ formatReportMetric(row.udp, 'loss') }}
+              </span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="平均延迟" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isReportMetricAlert(row.udp, 'latency') }">
+                {{ formatReportMetric(row.udp, 'latency') }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTableColumn>
+      </ElTable>
+    </ElCard>
+
+    <ElCard body-class="flex flex-col">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-base font-medium text-g-900">
           {{ protocolTitle }} {{ pageTitle }}趋势（{{ metricTitle }}）
@@ -70,17 +165,16 @@
       </div>
       <ArtLineChart
         v-else
-        class="min-h-0 flex-1"
-        height="100%"
+        :height="trendChartHeight"
         :x-axis-data="xAxisData"
         :data="chartSeries"
         :line-width="chartTheme.thinLineWidth"
         :line-opacity="0.7"
         :loading="trendLoading"
         :y-axis-min="0"
-        :y-axis-max="metric === 'loss' ? 100 : 300"
+        :y-axis-max="metricAlertValues[metric]"
         :value-unit="metric === 'loss' ? '%' : 'ms'"
-        :tooltip-alert-value="metric === 'loss' ? 100 : 300"
+        :tooltip-alert-value="metricAlertValues[metric]"
         :animation-enabled="false"
         :zero-is-empty="false"
         :show-all-tooltip-series="true"
@@ -108,7 +202,7 @@
 
 <script setup lang="ts">
   import { useRoute } from 'vue-router'
-  import { fetchGetProbeNodes, fetchGetProbeTrend } from '@/api/detection'
+  import { fetchGetProbeNodes, fetchGetProbeReport, fetchGetProbeTrend } from '@/api/detection'
   import { useChartOps } from '@/hooks/core/useChart'
   import type { LineDataItem } from '@/types/component/chart'
   import { formatBeijingMinute } from '@/utils/date'
@@ -119,16 +213,21 @@
 
   const route = useRoute()
   const chartTheme = useChartOps()
+  const metricAlertValues: Record<MetricType, number> = { loss: 100, latency: 300 }
+  const trendChartHeight = `calc(${chartTheme.chartHeight} * 2.4)`
   const nodes = ref<Api.Detection.ProbeNode[]>([])
   const sourceIpId = ref<number>()
   const rangeType = ref<Api.Detection.ProbeRangeType>('1d')
   const month = ref(getCurrentBeijingMonth())
   const protocolType = ref<Api.Detection.ProtocolType>('icmp')
   const metric = ref<MetricType>('loss')
+  const reportData = ref<Api.Detection.ProbeReportData>()
   const trendData = ref<Api.Detection.ProbeTrendData>()
   const nodeLoading = ref(false)
+  const reportLoading = ref(false)
   const trendLoading = ref(false)
-  let requestSerial = 0
+  let reportRequestSerial = 0
+  let trendRequestSerial = 0
 
   const probeMode = computed<Api.Detection.ProbeMode>(() =>
     route.name === 'CrossProvinceDetection' ? 2 : 1
@@ -158,6 +257,38 @@
   const chartSeries = computed<LineDataItem[]>(() =>
     buildChartSeries(trendData.value, timeIds.value, metric.value)
   )
+
+  /**
+   * 格式化报告表格中的协议平均指标。
+   * @param summary 协议聚合结果；没有样本时为 null。
+   * @param selectedMetric 待展示的丢包或延迟指标。
+   * @returns 带单位的指标文案，没有样本时返回短横线。
+   */
+  function formatReportMetric(
+    summary: Api.Detection.ProbeProtocolSummary | null,
+    selectedMetric: MetricType
+  ): string {
+    if (!summary) return '-'
+    if (selectedMetric === 'loss') return `${summary.lossRate.toFixed(1)}%`
+    return summary.averageLatencyMs === null ? '-' : `${summary.averageLatencyMs.toFixed(1)} ms`
+  }
+
+  /**
+   * 判断报告指标是否达到不可覆盖的标红阈值。
+   * @param summary 协议聚合结果；没有样本时为 null。
+   * @param selectedMetric 待判断的丢包或延迟指标。
+   * @returns 指标达到对应失败阈值时返回 true。
+   */
+  function isReportMetricAlert(
+    summary: Api.Detection.ProbeProtocolSummary | null,
+    selectedMetric: MetricType
+  ): boolean {
+    if (!summary) return false
+    if (selectedMetric === 'loss') return summary.lossRate >= metricAlertValues.loss
+    return (
+      summary.averageLatencyMs === null || summary.averageLatencyMs >= metricAlertValues.latency
+    )
+  }
 
   /**
    * 获取当前北京时间月份。
@@ -209,26 +340,64 @@
   }
 
   /**
+   * 构建概览与趋势接口共用的查询参数。
+   * @returns 当前筛选有效时返回查询参数，否则返回 undefined。
+   */
+  function buildProbeReportParams(): Api.Detection.ProbeReportParams | undefined {
+    if (!sourceIpId.value || (rangeType.value === 'month' && !month.value)) return undefined
+    return {
+      sourceIpId: sourceIpId.value,
+      probeMode: probeMode.value,
+      rangeType: rangeType.value,
+      month: rangeType.value === 'month' ? month.value : undefined
+    }
+  }
+
+  /**
+   * 查询当前筛选条件对应的概览报告，并忽略较早请求的迟到响应。
+   * @returns 无返回值。
+   */
+  async function loadReport(): Promise<void> {
+    const params = buildProbeReportParams()
+    if (!params) return
+    const currentSerial = ++reportRequestSerial
+    reportData.value = undefined
+    reportLoading.value = true
+    try {
+      const data = await fetchGetProbeReport(params)
+      if (currentSerial === reportRequestSerial) reportData.value = data
+    } finally {
+      if (currentSerial === reportRequestSerial) reportLoading.value = false
+    }
+  }
+
+  /**
    * 查询当前筛选条件对应的探测趋势，并忽略较早请求的迟到响应。
    * @returns 无返回值。
    */
   async function loadTrend(): Promise<void> {
-    if (!sourceIpId.value || (rangeType.value === 'month' && !month.value)) return
-    const currentSerial = ++requestSerial
+    const params = buildProbeReportParams()
+    if (!params) return
+    const currentSerial = ++trendRequestSerial
     trendData.value = undefined
     trendLoading.value = true
     try {
       const data = await fetchGetProbeTrend({
-        sourceIpId: sourceIpId.value,
-        probeMode: probeMode.value,
-        protocolType: protocolType.value,
-        rangeType: rangeType.value,
-        month: rangeType.value === 'month' ? month.value : undefined
+        ...params,
+        protocolType: protocolType.value
       })
-      if (currentSerial === requestSerial) trendData.value = data
+      if (currentSerial === trendRequestSerial) trendData.value = data
     } finally {
-      if (currentSerial === requestSerial) trendLoading.value = false
+      if (currentSerial === trendRequestSerial) trendLoading.value = false
     }
+  }
+
+  /**
+   * 并行刷新当前筛选条件对应的概览报告与趋势数据。
+   * @returns 两类数据请求均结束后的 Promise。
+   */
+  async function loadProbeData(): Promise<void> {
+    await Promise.all([loadReport(), loadTrend()])
   }
 
   /**
@@ -240,26 +409,26 @@
     try {
       nodes.value = await fetchGetProbeNodes()
       sourceIpId.value = nodes.value[0]?.id
-      await loadTrend()
+      await loadProbeData()
     } finally {
       nodeLoading.value = false
     }
   }
 
   /**
-   * 节点变化后刷新趋势。
+   * 节点变化后刷新概览报告与趋势。
    * @returns 无返回值。
    */
   function handleNodeChange(): void {
-    void loadTrend()
+    void loadProbeData()
   }
 
   /**
-   * 时间范围变化后刷新趋势。
+   * 时间范围变化后刷新概览报告与趋势。
    * @returns 无返回值。
    */
   function handleRangeChange(): void {
-    void loadTrend()
+    void loadProbeData()
   }
 
   /**
@@ -271,18 +440,19 @@
   }
 
   /**
-   * 月份变化后切换到月份范围并刷新趋势。
+   * 月份变化后切换到月份范围并刷新概览报告与趋势。
    * @returns 无返回值。
    */
   function handleMonthChange(): void {
     if (!month.value) return
     rangeType.value = 'month'
-    void loadTrend()
+    void loadProbeData()
   }
 
   watch(probeMode, () => {
+    reportData.value = undefined
     trendData.value = undefined
-    void loadTrend()
+    void loadProbeData()
   })
 
   onMounted(() => {
