@@ -111,15 +111,14 @@ func (engine *Engine) Run(ctx context.Context) error {
 	for {
 		windowStart := nextWindow
 		windowEnd := windowStart.Add(windowLength)
-		refreshChannel := make(chan TargetSnapshot, 1)
-		refreshError := make(chan error, 1)
+		refreshContext, cancelRefresh := context.WithCancel(ctx)
+		var refreshed TargetSnapshot
+		var refreshErr error
+		var refreshWaitGroup sync.WaitGroup
+		refreshWaitGroup.Add(1)
 		go func() {
-			refreshed, refreshErr := engine.fetchTargets(ctx)
-			if refreshErr != nil {
-				refreshError <- refreshErr
-				return
-			}
-			refreshChannel <- refreshed
+			defer refreshWaitGroup.Done()
+			refreshed, refreshErr = engine.fetchTargets(refreshContext)
 		}()
 
 		results, err := engine.runWindow(
@@ -130,22 +129,23 @@ func (engine *Engine) Run(ctx context.Context) error {
 			drivers,
 		)
 		if err != nil {
+			cancelRefresh()
+			refreshWaitGroup.Wait()
 			return err
 		}
+		refreshWaitGroup.Wait()
+		cancelRefresh()
 		engine.printWindowResults(windowStart, results)
 		engine.submitWindowResults(ctx, windowEnd.Unix(), results)
 		engine.submitWindowAlerts(ctx, windowEnd.Unix(), results)
-		select {
-		case refreshed := <-refreshChannel:
+		if refreshErr != nil {
+			fmt.Fprintf(engine.output, "刷新探测目标失败，下一窗口沿用当前目标: %v\n", refreshErr)
+		} else {
 			if len(refreshed.IPv4) == 0 && len(refreshed.IPv6) == 0 {
 				fmt.Fprintln(engine.output, "当前获取的异网和跨省探测目标为空，下一窗口沿用当前目标。")
 			} else {
 				snapshot = refreshed
 			}
-		case refreshErr := <-refreshError:
-			fmt.Fprintf(engine.output, "刷新探测目标失败，下一窗口沿用当前目标: %v\n", refreshErr)
-		default:
-			fmt.Fprintln(engine.output, "刷新探测目标尚未完成，下一窗口沿用当前目标。")
 		}
 		nextWindow = windowEnd
 	}
@@ -201,7 +201,7 @@ func (engine *Engine) fetchTargets(ctx context.Context) (TargetSnapshot, error) 
 //   - snapshot: 本窗口使用的目标快照。
 //   - drivers: 按 IP 版本索引的共享 ICMP Driver。
 //
-// 返回值: 各源地址的目标统计；窗口被取消时返回错误。
+// 返回值: 各源地址的目标统计；窗口被取消或 ICMP Driver 终止时返回错误。
 func (engine *Engine) runWindow(
 	ctx context.Context,
 	windowStart time.Time,
@@ -238,6 +238,15 @@ func (engine *Engine) runWindow(
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	for _, source := range windows {
+		if driverErr := source.driver.terminalError(); driverErr != nil {
+			return nil, fmt.Errorf(
+				"IPv%d ICMP Driver 已终止: %w",
+				source.version,
+				driverErr,
+			)
+		}
 	}
 	if err := validateWindowResults(results); err != nil {
 		return nil, err

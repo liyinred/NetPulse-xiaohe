@@ -22,6 +22,8 @@ const (
 	udpPort      = 33434
 )
 
+var errICMPDriverClosed = errors.New("ICMP Driver 已关闭")
+
 type pendingICMP struct {
 	target string
 	result chan time.Duration
@@ -30,14 +32,19 @@ type pendingICMP struct {
 
 // icmpDriver 使用单个源地址共享 ICMP socket 和接收循环。
 type icmpDriver struct {
-	connection *icmp.PacketConn
-	protocol   int
-	echoType   icmp.Type
-	replyType  icmp.Type
-	identifier int
-	mu         sync.Mutex
-	sequence   uint16
-	pending    map[uint16]pendingICMP
+	connection    *icmp.PacketConn
+	protocol      int
+	echoType      icmp.Type
+	replyType     icmp.Type
+	identifier    int
+	mu            sync.Mutex
+	sequence      uint16
+	pending       map[uint16]pendingICMP
+	done          chan struct{}
+	terminalErr   error
+	terminateOnce sync.Once
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 // newICMPDriver 创建并启动指定 IP 版本的共享 ICMP Driver。
@@ -73,6 +80,7 @@ func newICMPDriver(ipVersion int) (*icmpDriver, error) {
 		replyType:  replyType,
 		identifier: os.Getpid() & 0xffff,
 		pending:    make(map[uint16]pendingICMP),
+		done:       make(chan struct{}),
 	}
 	go driver.receive()
 	return driver, nil
@@ -83,7 +91,11 @@ func newICMPDriver(ipVersion int) (*icmpDriver, error) {
 // 参数: 无。
 // 返回值: socket 关闭结果。
 func (driver *icmpDriver) Close() error {
-	return driver.connection.Close()
+	driver.closeOnce.Do(func() {
+		driver.terminate(errICMPDriverClosed)
+		driver.closeErr = driver.connection.Close()
+	})
+	return driver.closeErr
 }
 
 // Probe 向单个同版本目标发送一次 ICMP Echo 并等待匹配响应。
@@ -97,6 +109,11 @@ func (driver *icmpDriver) Probe(
 	ctx context.Context,
 	target netip.Addr,
 ) (time.Duration, error) {
+	select {
+	case <-driver.done:
+		return 0, driver.terminalError()
+	default:
+	}
 	sequence, pending := driver.reserve(target.String())
 	defer driver.release(sequence)
 	message := icmp.Message{
@@ -119,9 +136,36 @@ func (driver *icmpDriver) Probe(
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
+	case <-driver.done:
+		return 0, driver.terminalError()
 	case rtt := <-pending.result:
 		return rtt, nil
 	}
+}
+
+// terminate 记录 ICMP Driver 的终止原因并通知全部等待中的探测。
+//
+// 参数:
+//   - err: receive loop 异常或主动关闭对应的终止原因。
+//
+// 返回值: 无。
+func (driver *icmpDriver) terminate(err error) {
+	driver.terminateOnce.Do(func() {
+		driver.mu.Lock()
+		driver.terminalErr = err
+		driver.mu.Unlock()
+		close(driver.done)
+	})
+}
+
+// terminalError 返回 ICMP Driver 已记录的终止原因。
+//
+// 参数: 无。
+// 返回值: Driver 的终止错误；尚未终止时返回 nil。
+func (driver *icmpDriver) terminalError() error {
+	driver.mu.Lock()
+	defer driver.mu.Unlock()
+	return driver.terminalErr
 }
 
 // reserve 分配当前未使用的 ICMP Sequence 并登记待匹配响应。
@@ -169,6 +213,7 @@ func (driver *icmpDriver) receive() {
 	for {
 		readCount, peer, err := driver.connection.ReadFrom(buffer)
 		if err != nil {
+			driver.terminate(fmt.Errorf("ICMP receive loop 异常退出: %w", err))
 			return
 		}
 		message, err := icmp.ParseMessage(driver.protocol, buffer[:readCount])
