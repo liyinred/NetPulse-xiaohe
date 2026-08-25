@@ -33,3 +33,26 @@ export function fetchGetProbeReport(params: Api.Detection.ProbeReportParams) {
     params
   })
 }
+
+/**
+ * 创建当前用户的临时公网 IP 探测查询。
+ * @param params 用户输入的单个目标 IP。
+ * @returns 独立查询标识和共享执行初始状态。
+ */
+export function fetchCreateOnDemandProbe(params: Api.Detection.OnDemandProbeCreateParams) {
+  return request.post<Api.Detection.OnDemandProbeCreated>({
+    url: '/api/on-demand-probes',
+    params
+  })
+}
+
+/**
+ * 获取当前用户指定临时 IP 查询的进度和节点结果。
+ * @param queryId 用户查询记录主键。
+ * @returns 当前执行状态及异网、跨省节点结果。
+ */
+export function fetchGetOnDemandProbe(queryId: number) {
+  return request.get<Api.Detection.OnDemandProbeResult>({
+    url: `/api/on-demand-probes/${queryId}`
+  })
+}

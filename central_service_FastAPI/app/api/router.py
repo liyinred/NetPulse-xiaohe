@@ -5,6 +5,8 @@ from fastapi import APIRouter
 from app.api.routes.auth import router as auth_router
 from app.api.routes.device import router as device_router
 from app.api.routes.ip_management import router as ip_management_router
+from app.api.routes.on_demand_probe import router as on_demand_probe_router
+from app.api.routes.on_demand_probe import web_router as on_demand_probe_web_router
 from app.api.routes.public_ip import router as public_ip_router
 from app.api.routes.probe import router as probe_router
 from app.api.routes.probe import web_router as probe_web_router
@@ -19,6 +21,8 @@ api_router.include_router(callback_router)
 api_router.include_router(qrcode_router)
 api_router.include_router(device_router)
 api_router.include_router(ip_management_router)
+api_router.include_router(on_demand_probe_router)
+api_router.include_router(on_demand_probe_web_router)
 api_router.include_router(public_ip_router)
 api_router.include_router(probe_router)
 api_router.include_router(probe_web_router)

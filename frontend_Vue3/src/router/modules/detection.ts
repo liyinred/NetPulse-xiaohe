@@ -21,5 +21,14 @@ export const detectionRoutes: AppRouteRecord[] = [
       title: '跨省探测',
       icon: 'ri:road-map-line'
     }
+  },
+  {
+    path: '/temporary-ip-detection',
+    name: 'TemporaryIPDetection',
+    component: '/detection/temporary-ip',
+    meta: {
+      title: '临时IP探测',
+      icon: 'ri:focus-3-line'
+    }
   }
 ]

@@ -102,15 +102,27 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 
 	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
 	printBindingInfo(output, bindingInfo)
+	onDemandRunner := probe.NewOnDemandRunner(
+		backend,
+		deviceID,
+		sourceIPv4,
+		sourceIPv6,
+		output,
+	)
 
 	confirmed, err := confirmContinuousProbe(input, output)
 	if err != nil {
 		return err
 	}
 	if !confirmed {
-		fmt.Fprintln(output, "已取消持续探测。")
-		return nil
+		fmt.Fprintln(output, "已取消持续探测，临时 IP 探测节点保持在线。")
+		return onDemandRunner.Run(ctx)
 	}
+	go func() {
+		if runnerErr := onDemandRunner.Run(ctx); runnerErr != nil && ctx.Err() == nil {
+			fmt.Fprintf(output, "临时 IP 探测轮询已停止: %v\n", runnerErr)
+		}
+	}()
 	fmt.Fprintln(output, "正在获取异网和跨省探测目标...")
 	probeEngine := probe.NewEngine(
 		backend,

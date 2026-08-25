@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/url"
 )
 
 // ProbeTarget 保存中央服务下发的单个探测目标。
@@ -77,6 +78,39 @@ type probeAcceptedResponse struct {
 	Accepted bool `json:"accepted"`
 }
 
+// OnDemandTask 保存中央服务下发的临时 IP 按需探测任务。
+type OnDemandTask struct {
+	ID         int64  `json:"id"`
+	SourceIP   string `json:"source_ip"`
+	TargetIP   string `json:"target_ip"`
+	IPVersion  int    `json:"ip_version"`
+	ProbeCount int    `json:"probe_count"`
+	IntervalMS int    `json:"interval_ms"`
+	TimeoutMS  int    `json:"timeout_ms"`
+}
+
+type onDemandTaskResponse struct {
+	Data *OnDemandTask `json:"data"`
+}
+
+// OnDemandResults 保存按需任务的三协议汇总结果。
+type OnDemandResults struct {
+	ICMP ProtocolResult `json:"icmp"`
+	TCP  ProtocolResult `json:"tcp"`
+	UDP  ProtocolResult `json:"udp"`
+}
+
+// OnDemandResultRequest 保存节点任务的完整按需探测上报。
+type OnDemandResultRequest struct {
+	TaskID     int64           `json:"task_id"`
+	DeviceID   string          `json:"device_id"`
+	SourceIP   string          `json:"source_ip"`
+	TargetIP   string          `json:"target_ip"`
+	StartedAt  int64           `json:"started_at"`
+	FinishedAt int64           `json:"finished_at"`
+	Results    OnDemandResults `json:"results"`
+}
+
 // FetchProbeTargets 使用当前公网地址查询异网和跨省目标。
 //
 // 参数:
@@ -143,6 +177,43 @@ func (backend *Backend) SubmitProbeAlerts(
 	alerts ProbeAlertsRequest,
 ) error {
 	return backend.submitProbePayload(ctx, "/probes/alerts", alerts)
+}
+
+// PollOnDemandTask 长轮询并领取当前设备的一个按需探测任务。
+//
+// 参数:
+//   - ctx: 控制长轮询取消的 Context。
+//   - deviceID: Agent 设备标识。
+//
+// 返回值: 领取到的任务；无任务时返回 nil，请求失败时返回错误。
+func (backend *Backend) PollOnDemandTask(
+	ctx context.Context,
+	deviceID string,
+) (*OnDemandTask, error) {
+	endpoint := backend.baseURL + "/probes/on-demand/tasks?device_id=" + url.QueryEscape(deviceID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建按需任务轮询请求失败: %w", err)
+	}
+	var response onDemandTaskResponse
+	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+		return nil, fmt.Errorf("轮询按需探测任务失败: %w", err)
+	}
+	return response.Data, nil
+}
+
+// SubmitOnDemandResult 幂等上报一个节点任务的三协议结果。
+//
+// 参数:
+//   - ctx: 控制请求取消的 Context。
+//   - result: 节点任务及其完整探测结果。
+//
+// 返回值: 中央服务接受请求时返回 nil，否则返回错误。
+func (backend *Backend) SubmitOnDemandResult(
+	ctx context.Context,
+	result OnDemandResultRequest,
+) error {
+	return backend.submitProbePayload(ctx, "/probes/on-demand/results", result)
 }
 
 // submitProbePayload 提交探测 JSON 并校验接受标志。

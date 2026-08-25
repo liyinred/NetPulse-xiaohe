@@ -170,6 +170,63 @@ declare namespace Api {
       endTime: number
       series: ProbeTrendSeries[]
     }
+
+    /** 临时 IP 探测执行状态 */
+    type OnDemandProbeStatus =
+      | 'queued'
+      | 'running'
+      | 'completed'
+      | 'partial_completed'
+      | 'failed'
+
+    /** 临时 IP 探测创建参数 */
+    interface OnDemandProbeCreateParams {
+      targetIp: string
+    }
+
+    /** 临时 IP 探测创建结果 */
+    interface OnDemandProbeCreated {
+      queryId: number
+      executionId: number
+      status: OnDemandProbeStatus
+      targetIp: string
+    }
+
+    /** 单个协议的临时探测结果 */
+    interface OnDemandProtocolResult {
+      loss_rate: number
+      average_latency_ms: number
+    }
+
+    /** 单个在线节点的临时探测结果 */
+    interface OnDemandNodeResult {
+      sourceIpId: number
+      isp: number | null
+      province: number | null
+      icmp: OnDemandProtocolResult
+      tcp: OnDemandProtocolResult
+      udp: OnDemandProtocolResult
+    }
+
+    /** 临时 IP 探测进度和分类结果 */
+    interface OnDemandProbeResult {
+      executionId: number
+      status: OnDemandProbeStatus
+      targetIp: string
+      ipVersion: 4 | 6
+      targetIsp: number | null
+      targetProvince: number | null
+      totalNodeCount: number
+      pendingNodeCount: number
+      runningNodeCount: number
+      completedNodeCount: number
+      timeoutNodeCount: number
+      failedNodeCount: number
+      results: {
+        crossIspResults: OnDemandNodeResult[]
+        crossProvinceResults: OnDemandNodeResult[]
+      }
+    }
   }
 
   /** 系统管理类型 */
