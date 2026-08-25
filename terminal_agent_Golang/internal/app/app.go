@@ -115,7 +115,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 	if !confirmed {
-		fmt.Fprintln(output, "已取消持续探测，临时 IP 探测节点保持在线。")
+		fmt.Fprintln(output, "暂不进行持续探测，临时 IP 探测节点保持在线。")
 		return onDemandRunner.Run(ctx)
 	}
 	go func() {
@@ -134,31 +134,34 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	return probeEngine.Run(ctx)
 }
 
-// confirmContinuousProbe 显示 Y/N 提示并监听用户输入。
+// confirmContinuousProbe 显示数字选项并监听用户输入。
 //
 // 参数:
 //   - input: 接收终端输入的 Reader。
 //   - output: 输出提示和格式错误信息的 Writer。
 //
-// 返回值: 输入 Y 时返回 True，输入 N 时返回 False；读取失败时返回错误。
+// 返回值: 输入 1 时返回 True，输入 0 时返回 False；读取失败时返回错误。
 func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
 	reader := bufio.NewReader(input)
 	for {
-		if _, err := fmt.Fprint(output, "是否进行持续探测(Y/N): "); err != nil {
+		if _, err := fmt.Fprint(
+			output,
+			"请选择运行模式:\n0. 暂不进行持续探测\n1. 进行持续探测\n请输入选项(0/1): ",
+		); err != nil {
 			return false, fmt.Errorf("输出持续探测提示失败: %w", err)
 		}
 		answer, err := reader.ReadString('\n')
 		answer = strings.TrimSpace(answer)
-		if strings.EqualFold(answer, "Y") {
+		if answer == "1" {
 			return true, nil
 		}
-		if strings.EqualFold(answer, "N") {
+		if answer == "0" {
 			return false, nil
 		}
 		if err != nil {
 			return false, fmt.Errorf("读取持续探测确认失败: %w", err)
 		}
-		fmt.Fprintln(output, "请输入 Y 或 N。")
+		fmt.Fprintln(output, "请输入 0 或 1。")
 	}
 }
 

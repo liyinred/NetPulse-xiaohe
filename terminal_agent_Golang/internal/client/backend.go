@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	pollInterval  = 2 * time.Second
-	publicIPv6URL = "http://6.itdog.cn"
+	pollInterval        = 2 * time.Second
+	onDemandPollTimeout = 15 * time.Second
+	publicIPv6URL       = "http://6.itdog.cn"
 )
 
 var errQRCodeExpired = errors.New("二维码已过期")
@@ -25,6 +26,7 @@ var errQRCodeExpired = errors.New("二维码已过期")
 type Backend struct {
 	baseURL          string
 	httpClient       *http.Client
+	onDemandClient   *http.Client
 	publicIPv6Client *http.Client
 }
 
@@ -64,13 +66,14 @@ type BindingInfo struct {
 //
 // 参数:
 //   - baseURL: FastAPI 后端基础 URL。
-//   - timeout: 单次 HTTP 请求超时时间。
+//   - timeout: 普通 HTTP 请求的单次超时时间。
 //
 // 返回值: 可用于中央服务访问和公网 IPv6 查询的 Backend。
 func NewBackend(baseURL string, timeout time.Duration) *Backend {
 	return &Backend{
 		baseURL:          strings.TrimRight(baseURL, "/"),
 		httpClient:       newHTTPClient("tcp4", timeout, true),
+		onDemandClient:   newHTTPClient("tcp4", onDemandPollTimeout, true),
 		publicIPv6Client: newHTTPClient("tcp6", timeout, false),
 	}
 }

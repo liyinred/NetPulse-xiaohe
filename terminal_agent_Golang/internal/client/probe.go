@@ -196,7 +196,7 @@ func (backend *Backend) PollOnDemandTask(
 		return nil, fmt.Errorf("创建按需任务轮询请求失败: %w", err)
 	}
 	var response onDemandTaskResponse
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.onDemandClient, request, &response); err != nil {
 		return nil, fmt.Errorf("轮询按需探测任务失败: %w", err)
 	}
 	return response.Data, nil

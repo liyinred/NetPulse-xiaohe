@@ -20,8 +20,8 @@ from app.schemas.on_demand_probe import (
 from app.services.network import NetworkInfo, lookup_network
 
 
-EXECUTION_DEADLINE_SECONDS = 5
-NODE_ONLINE_SECONDS = 15
+EXECUTION_DEADLINE_SECONDS = 15
+NODE_ONLINE_SECONDS = 10
 QUERY_RETENTION_SECONDS = 24 * 60 * 60
 
 EXECUTION_STATUS_NAMES = {
@@ -357,7 +357,7 @@ def _expire_execution(
     execution: OnDemandExecution,
     current_time: int,
 ) -> None:
-    """在执行超过五秒截止时间时标记未完成任务并计算终态。
+    """在执行超过十五秒截止时间时标记未完成任务并计算终态。
 
     参数:
         session: 当前数据库事务会话。

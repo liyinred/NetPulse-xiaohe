@@ -1,27 +1,18 @@
 <template>
   <div class="flex flex-col gap-3">
     <section class="art-card-xs overflow-hidden">
-      <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
-        <div class="min-w-64 flex-1">
-          <div class="flex items-center gap-2 text-base font-medium text-g-900">
-            <ArtSvgIcon icon="ri:crosshair-2-line" class="text-xl text-theme" />
-            <span>临时 IP 探测</span>
-          </div>
-          <p class="mt-1 text-sm text-g-600">
-            自动调用在线的异网与跨省 Agent，并行完成 ICMP、TCP 80、UDP 33434 探测
-          </p>
-        </div>
-
+      <div class="mx-auto max-w-3xl px-5 py-5">
         <ElForm
           ref="formRef"
-          class="flex min-w-80 flex-1 items-start justify-end gap-2 max-sm:min-w-full max-sm:flex-col"
+          class="flex items-start justify-center gap-2 max-sm:flex-col"
           :model="form"
           :rules="rules"
           @submit.prevent="handleSubmit"
         >
-          <ElFormItem class="mb-0 w-full max-w-xl" prop="targetIp">
+          <ElFormItem class="mb-0 w-full" prop="targetIp">
             <ElInput
               v-model="form.targetIp"
+              size="large"
               maxlength="45"
               clearable
               placeholder="输入公网 IPv4 或 IPv6 地址"
@@ -32,10 +23,19 @@
               </template>
             </ElInput>
           </ElFormItem>
-          <ElButton type="primary" :loading="submitting" @click="handleSubmit" v-ripple>
+          <ElButton
+            type="primary"
+            size="large"
+            :loading="submitting"
+            @click="handleSubmit"
+            v-ripple
+          >
             开始探测
           </ElButton>
         </ElForm>
+        <p class="mt-1 text-xs text-g-600">
+          自动调用在线的异网与跨省IP主机，并行完成 ICMP、TCP 80、UDP 33434 探测
+        </p>
       </div>
 
       <div v-if="result" class="border-t border-g-300 px-5 py-4">
@@ -267,7 +267,7 @@
    * @returns 可读的网络归属名称。
    */
   function formatNetwork(province: number | null, isp: number | null): string {
-    return `${provinceNames[province ?? 0] ?? '未知省份'} · ${ispNames[isp ?? 0] ?? '未知运营商'}`
+    return `${provinceNames[province ?? 0] ?? '未知省份'}${ispNames[isp ?? 0] ?? '未知运营商'}`
   }
 
   /**

@@ -11,7 +11,10 @@ import (
 	"netpulse/terminal-agent/internal/client"
 )
 
-const onDemandRetryDelay = time.Second
+const (
+	onDemandRetryDelay        = time.Second
+	onDemandSubmitMaxAttempts = 3
+)
 
 // OnDemandRunner 长轮询、执行并上报临时 IP 按需探测任务。
 type OnDemandRunner struct {
@@ -70,7 +73,7 @@ func (runner *OnDemandRunner) Run(ctx context.Context) error {
 	}
 }
 
-// executeTask 校验、执行并一次性上报一个节点任务。
+// executeTask 校验、执行并有限重试上报一个节点任务。
 //
 // 参数:
 //   - ctx: 控制 Agent 全局退出的 Context。
@@ -118,11 +121,33 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 			ICMP: results["icmp"], TCP: results["tcp"], UDP: results["udp"],
 		},
 	}
-	if err := runner.backend.SubmitOnDemandResult(ctx, request); err != nil {
-		fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 上报失败: %v\n", task.ID, err)
-		return
+	var submitErr error
+	attempts := 0
+	for attempt := 1; attempt <= onDemandSubmitMaxAttempts; attempt++ {
+		attempts = attempt
+		submitErr = runner.backend.SubmitOnDemandResult(ctx, request)
+		if submitErr == nil {
+			fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 已完成: %s\n", task.ID, target)
+			return
+		}
+		if attempt == onDemandSubmitMaxAttempts {
+			break
+		}
+		fmt.Fprintf(
+			runner.output,
+			"临时 IP 探测任务 %d 第 %d/%d 次上报失败，将在 %s 后重试: %v\n",
+			task.ID, attempt, onDemandSubmitMaxAttempts, onDemandRetryDelay, submitErr,
+		)
+		if err := waitUntil(ctx, time.Now().Add(onDemandRetryDelay)); err != nil {
+			submitErr = err
+			break
+		}
 	}
-	fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 已完成: %s\n", task.ID, target)
+	fmt.Fprintf(
+		runner.output,
+		"临时 IP 探测任务 %d 上报失败，已尝试 %d 次: %v\n",
+		task.ID, attempts, submitErr,
+	)
 }
 
 // validateTask 校验固定探测参数、地址族及当前源地址。
