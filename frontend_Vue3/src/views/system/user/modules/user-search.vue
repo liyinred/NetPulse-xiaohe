@@ -3,6 +3,7 @@
 </template>
 
 <script setup lang="ts">
+  import { USER_LEVEL_OPTIONS } from '@/utils/constants'
   import { ALERT_TYPE_OPTIONS } from '../alert-type'
 
   interface Props {
@@ -50,11 +51,7 @@
       props: {
         placeholder: '请选择用户等级',
         clearable: true,
-        options: [
-          { label: '普通用户', value: 1 },
-          { label: '高级用户', value: 2 },
-          { label: '管理员', value: 9 }
-        ]
+        options: USER_LEVEL_OPTIONS
       }
     },
     {

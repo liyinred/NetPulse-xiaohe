@@ -161,7 +161,7 @@
         v-if="nodes.length === 0 && !nodeLoading"
         class="flex flex-1 items-center justify-center"
       >
-        <ElEmpty description="当前用户暂无关联探测节点" />
+        <ElEmpty description="暂无可用探测节点" />
       </div>
       <ArtLineChart
         v-else
@@ -189,9 +189,11 @@
         :show-y-axis-label="false"
         :emphasize-axis="true"
         :compact-tooltip="true"
+        :tooltip-font-size="chartTheme.tinyFontSize"
         :thicken-on-emphasis="false"
         :use-built-in-palette="true"
-        :legend-space="chartTheme.fontSize * 8"
+        :legend-space="chartTheme.fontSize * 9"
+        :legend-font-size="chartTheme.tinyFontSize"
         :legend-hover-link="false"
         :shift-legend-exclusive-select="true"
         legend-position="top"
@@ -401,7 +403,7 @@
   }
 
   /**
-   * 加载用户探测节点并默认选择第一个节点。
+   * 加载当前用户可访问的探测节点并默认选择第一个节点。
    * @returns 无返回值。
    */
   async function loadNodes(): Promise<void> {

@@ -16,7 +16,7 @@ from app.schemas.ip_management import (
     IPUpsertResponse,
 )
 from app.schemas.pagination import PaginationParams
-from app.services.auth import get_current_user
+from app.services.auth import get_current_admin
 from app.services.ip_management import (
     list_ips,
     update_ip_public_status,
@@ -31,13 +31,13 @@ router = APIRouter(prefix="/api/ip", tags=["IP 管理"])
 @router.post("", response_model=IPUpsertResponse)
 async def upsert_ip(
     request: IPUpsertRequest,
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(get_current_admin)],
 ) -> IPUpsertResponse:
     """查询 IP 归属信息并新增或刷新 ip_dict 记录。
 
     参数:
         request: 包含标准 IPv4 或 IPv6 地址的请求。
-        _: JWT 认证解析出的当前用户。
+        _: 管理员认证依赖解析出的当前用户。
     返回:
         统一响应包装的新增或刷新后 IP 数据。
     """
@@ -54,14 +54,14 @@ async def upsert_ip(
 )
 def update_public_status(
     request: IPPublicStatusUpdateRequest,
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(get_current_admin)],
     ip_id: int = Path(ge=1),
 ) -> IPPublicStatusUpdateResponse:
     """按记录 ID 修改 IP 公开状态。
 
     参数:
         request: 包含新公开状态的请求。
-        _: JWT 认证解析出的当前用户。
+        _: 管理员认证依赖解析出的当前用户。
         ip_id: ip_dict 表记录 ID。
     返回:
         统一响应包装的更新后 IP 数据。
@@ -75,7 +75,7 @@ def update_public_status(
 @router.get("/list", response_model=IPListResponse)
 def get_ip_list(
     pagination: Annotated[PaginationParams, Depends()],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[User, Depends(get_current_admin)],
     ip: str | None = Query(default=None, max_length=45),
     ip_version: IPVersion | None = Query(default=None, alias="ipVersion"),
     isp: ISPCode | None = Query(default=None),
@@ -90,7 +90,7 @@ def get_ip_list(
 
     参数:
         pagination: current、size、sortField、sortOrder 分页协议。
-        _: JWT 认证解析出的当前用户。
+        _: 管理员认证依赖解析出的当前用户。
         ip: IP 地址模糊筛选值。
         ip_version: IP 版本精确筛选值。
         isp: 运营商编码精确筛选值。

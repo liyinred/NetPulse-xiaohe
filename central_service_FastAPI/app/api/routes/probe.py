@@ -37,14 +37,14 @@ web_router = APIRouter(prefix="/api/probes", tags=["探测趋势"])
 def get_probe_nodes(
     user: Annotated[User, Depends(get_current_user)],
 ) -> ProbeNodesResponse:
-    """查询当前用户关联设备的全部探测源节点。
+    """按用户等级查询可访问且已有结果的探测源节点。
 
     参数:
         user: JWT 认证依赖解析出的当前用户。
     返回:
         统一响应包装的探测节点列表。
     """
-    return ProbeNodesResponse(data=list_user_probe_nodes(user.id))
+    return ProbeNodesResponse(data=list_user_probe_nodes(user.id, user.user_level))
 
 
 @web_router.get("/trend", response_model=ProbeTrendResponse)
@@ -71,6 +71,7 @@ def get_probe_trend(
     try:
         data = get_user_probe_trend(
             user.id,
+            user.user_level,
             source_ip_id,
             probe_mode,
             protocol_type,
@@ -104,6 +105,7 @@ def get_probe_report(
     try:
         data = get_user_probe_report(
             user.id,
+            user.user_level,
             source_ip_id,
             probe_mode,
             range_type,

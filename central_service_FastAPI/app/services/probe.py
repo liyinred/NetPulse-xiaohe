@@ -34,6 +34,7 @@ from app.schemas.probe import (
     ProbeTrendSeries,
     ProtocolType,
 )
+from app.schemas.user import UserLevel
 from app.services.device import _upsert_ip_record
 from app.services.network import (
     ISP_NAMES,
@@ -62,30 +63,36 @@ PROBE_STATE_MODELS = {
 def _get_user_probe_source_network(
     session: Session,
     user_id: int,
+    user_level: int,
     source_ip_id: int,
 ) -> tuple[int | None, int | None]:
-    """校验探测源节点归属并返回其网络属性。
+    """校验用户对探测源节点的访问权限并返回其网络属性。
 
     参数:
         session: 当前数据库会话。
         user_id: 当前登录用户的内部主键。
+        user_level: 当前登录用户的等级。
         source_ip_id: 用户选择的源 IP 记录主键。
     返回:
         源节点的省份编码和运营商编码。
     """
-    source_record = session.execute(
+    statement = (
         select(IPDict.province, IPDict.isp)
         .join(Device, IPDict.device_related_id == Device.id)
-        .where(IPDict.id == source_ip_id, Device.user_id == user_id)
-    ).one_or_none()
+        .where(IPDict.id == source_ip_id)
+    )
+    if user_level < UserLevel.PREMIUM:
+        statement = statement.where(Device.user_id == user_id)
+    source_record = session.execute(statement).one_or_none()
     if source_record is None:
-        raise ValueError("探测节点不存在或不属于当前用户")
+        raise ValueError("探测节点不存在或无权访问")
     return source_record.province, source_record.isp
 
 
 def _build_probe_report(
     session: Session,
     user_id: int,
+    user_level: int,
     source_ip_id: int,
     source_province: int | None,
     source_isp: int | None,
@@ -98,6 +105,7 @@ def _build_probe_report(
     参数:
         session: 当前数据库会话。
         user_id: 当前登录用户的内部主键。
+        user_level: 当前登录用户的等级。
         source_ip_id: 用户选择的源 IP 记录主键。
         source_province: 源节点省份编码。
         source_isp: 源节点运营商编码。
@@ -109,7 +117,7 @@ def _build_probe_report(
     """
     rows_by_network: dict[tuple[int | None, int | None], ProbeReportRow] = {}
     for protocol_type, state_model in PROBE_STATE_MODELS.items():
-        records = session.execute(
+        statement = (
             select(
                 IPDict.province,
                 IPDict.isp,
@@ -128,12 +136,16 @@ def _build_probe_report(
                 state_model.source_ip_id == source_ip_id,
                 state_model.probe_mode == probe_mode,
                 state_model.time_id.between(start_time, end_time),
-                state_model.device_related_id.in_(
-                    select(Device.id).where(Device.user_id == user_id)
-                ),
             )
             .group_by(IPDict.province, IPDict.isp)
-        ).all()
+        )
+        if user_level < UserLevel.PREMIUM:
+            statement = statement.where(
+                state_model.device_related_id.in_(
+                    select(Device.id).where(Device.user_id == user_id)
+                )
+            )
+        records = session.execute(statement).all()
         for record in records:
             network_key = (record.province, record.isp)
             report_row = rows_by_network.setdefault(
@@ -610,21 +622,32 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                 )
 
 
-def list_user_probe_nodes(user_id: int) -> list[ProbeNodeItem]:
-    """查询当前用户关联设备的全部源 IP 节点。
+def list_user_probe_nodes(
+    user_id: int,
+    user_level: int,
+) -> list[ProbeNodeItem]:
+    """按用户等级查询已有持续探测结果的源 IP 节点。
 
     参数:
         user_id: 当前登录用户的内部主键。
+        user_level: 当前登录用户的等级，高级等级以上可查看全部节点。
     返回:
-        按 IP 版本和地址排序的探测节点列表。
+        按 IP 版本和地址排序的已有结果探测节点列表。
     """
     with SessionLocal() as session:
-        records = session.execute(
+        statement = (
             select(IPDict.id, IPDict.ip, IPDict.province, IPDict.isp)
             .join(Device, IPDict.device_related_id == Device.id)
-            .where(Device.user_id == user_id)
+            .where(
+                select(ICMPProbeState.source_ip_id)
+                .where(ICMPProbeState.source_ip_id == IPDict.id)
+                .exists(),
+            )
             .order_by(IPDict.ip_version, IPDict.ip)
-        ).all()
+        )
+        if user_level < UserLevel.PREMIUM:
+            statement = statement.where(Device.user_id == user_id)
+        records = session.execute(statement).all()
     return [
         ProbeNodeItem(
             id=record.id,
@@ -682,6 +705,7 @@ def _resolve_probe_time_range(
 
 def get_user_probe_report(
     user_id: int,
+    user_level: int,
     source_ip_id: int,
     probe_mode: int,
     range_type: ProbeRangeType,
@@ -692,6 +716,7 @@ def get_user_probe_report(
 
     参数:
         user_id: 当前登录用户的内部主键。
+        user_level: 当前登录用户的等级，高级等级以上可查询全部节点。
         source_ip_id: 用户选择的源 IP 记录主键。
         probe_mode: 探测模式编码，1 为异网，2 为跨省。
         range_type: 最近 1、2、7 天或月份范围。
@@ -709,11 +734,13 @@ def get_user_probe_report(
         source_province, source_isp = _get_user_probe_source_network(
             session,
             user_id,
+            user_level,
             source_ip_id,
         )
         return _build_probe_report(
             session,
             user_id,
+            user_level,
             source_ip_id,
             source_province,
             source_isp,
@@ -725,6 +752,7 @@ def get_user_probe_report(
 
 def get_user_probe_trend(
     user_id: int,
+    user_level: int,
     source_ip_id: int,
     probe_mode: int,
     protocol_type: ProtocolType,
@@ -736,6 +764,7 @@ def get_user_probe_trend(
 
     参数:
         user_id: 当前登录用户的内部主键。
+        user_level: 当前登录用户的等级，高级等级以上可查询全部节点。
         source_ip_id: 用户选择的源 IP 记录主键。
         probe_mode: 探测模式编码，1 为异网，2 为跨省。
         protocol_type: icmp、tcp 或 udp 协议类型。
@@ -753,9 +782,14 @@ def get_user_probe_trend(
     state_model = PROBE_STATE_MODELS[protocol_type]
 
     with SessionLocal() as session:
-        _get_user_probe_source_network(session, user_id, source_ip_id)
+        _get_user_probe_source_network(
+            session,
+            user_id,
+            user_level,
+            source_ip_id,
+        )
 
-        records = session.execute(
+        statement = (
             select(
                 state_model.time_id,
                 IPDict.id.label("target_ip_id"),
@@ -770,12 +804,16 @@ def get_user_probe_trend(
                 state_model.source_ip_id == source_ip_id,
                 state_model.probe_mode == probe_mode,
                 state_model.time_id.between(start_time, end_time),
-                state_model.device_related_id.in_(
-                    select(Device.id).where(Device.user_id == user_id)
-                ),
             )
             .order_by(IPDict.id, state_model.time_id)
-        ).all()
+        )
+        if user_level < UserLevel.PREMIUM:
+            statement = statement.where(
+                state_model.device_related_id.in_(
+                    select(Device.id).where(Device.user_id == user_id)
+                )
+            )
+        records = session.execute(statement).all()
     series_by_target: dict[int, ProbeTrendSeries] = {}
     for record in records:
         series = series_by_target.setdefault(

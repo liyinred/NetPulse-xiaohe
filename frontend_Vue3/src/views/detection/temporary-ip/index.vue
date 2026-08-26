@@ -10,18 +10,41 @@
           @submit.prevent="handleSubmit"
         >
           <ElFormItem class="mb-0 w-full" prop="targetIp">
-            <ElInput
+            <ElAutocomplete
+              ref="autocompleteRef"
               v-model="form.targetIp"
+              class="w-full"
               size="large"
               maxlength="45"
               clearable
+              fit-input-width
+              :fetch-suggestions="fetchHistorySuggestions"
+              :trigger-on-focus="true"
               placeholder="输入公网 IPv4 或 IPv6 地址"
               @keyup.enter="handleSubmit"
             >
               <template #prefix>
                 <ArtSvgIcon icon="ri:global-line" />
               </template>
-            </ElInput>
+              <template #default="{ item }">
+                <div class="flex w-full min-w-0 items-center justify-between gap-3">
+                  <span class="truncate">{{ item.value }}</span>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <span class="text-xs text-g-500">最近探测</span>
+                    <button
+                      type="button"
+                      class="size-5 rounded-full text-g-500 flex-cc hover:bg-g-200 hover:text-danger"
+                      title="删除记录"
+                      aria-label="删除探测记录"
+                      @mousedown.prevent.stop
+                      @click.stop="removeProbeTarget(item.value)"
+                    >
+                      <ArtSvgIcon icon="ri:delete-bin-5-line" class="text-xs" />
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </ElAutocomplete>
           </ElFormItem>
           <ElButton
             type="primary"
@@ -62,77 +85,114 @@
       </div>
     </section>
 
-    <div v-if="result" class="grid grid-cols-2 gap-3 max-xl:grid-cols-1">
-      <ElCard shadow="never">
-        <template #header>
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <ArtSvgIcon icon="ri:exchange-2-line" class="text-lg text-theme" />
-              <span class="font-medium text-g-900">异网节点</span>
+    <template v-if="result">
+      <div class="grid grid-cols-2 gap-3 max-xl:grid-cols-1">
+        <ElCard shadow="never">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <ArtSvgIcon icon="ri:exchange-2-line" class="text-lg text-theme" />
+                <span class="font-medium text-g-900">异网节点</span>
+              </div>
+              <ElTag type="info" effect="plain">
+                {{ result.results.crossIspResults.length }} 个结果
+              </ElTag>
             </div>
-            <ElTag type="info" effect="plain">
-              {{ result.results.crossIspResults.length }} 个结果
-            </ElTag>
-          </div>
-        </template>
-        <ElTable
-          :data="result.results.crossIspResults"
-          empty-text="暂无已完成的异网节点结果"
-          table-layout="auto"
-        >
-          <ElTableColumn label="探测节点" min-width="120">
-            <template #default="{ row }">{{ formatNode(row) }}</template>
-          </ElTableColumn>
-          <ElTableColumn
-            v-for="protocol in protocols"
-            :key="protocol"
-            :label="protocol.toUpperCase()"
-            min-width="105"
-            align="right"
+          </template>
+          <ElTable
+            :data="result.results.crossIspResults"
+            empty-text="暂无已完成的异网节点结果"
+            table-layout="auto"
           >
-            <template #default="{ row }">
-              <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
-              <div class="text-xs text-g-500">丢包 {{ formatLoss(row[protocol]) }}</div>
-            </template>
-          </ElTableColumn>
-        </ElTable>
-      </ElCard>
+            <ElTableColumn label="探测节点" min-width="120">
+              <template #default="{ row }">{{ formatNode(row) }}</template>
+            </ElTableColumn>
+            <ElTableColumn
+              v-for="protocol in protocols"
+              :key="protocol"
+              :label="protocol.toUpperCase()"
+              min-width="105"
+              align="right"
+            >
+              <template #default="{ row }">
+                <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
+                <div class="text-xs text-g-500">丢包 {{ formatLoss(row[protocol]) }}</div>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </ElCard>
 
-      <ElCard shadow="never">
-        <template #header>
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <ArtSvgIcon icon="ri:road-map-line" class="text-lg text-theme" />
-              <span class="font-medium text-g-900">跨省节点</span>
+        <ElCard shadow="never">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <ArtSvgIcon icon="ri:road-map-line" class="text-lg text-theme" />
+                <span class="font-medium text-g-900">跨省节点</span>
+              </div>
+              <ElTag type="info" effect="plain">
+                {{ result.results.crossProvinceResults.length }} 个结果
+              </ElTag>
             </div>
-            <ElTag type="info" effect="plain">
-              {{ result.results.crossProvinceResults.length }} 个结果
-            </ElTag>
+          </template>
+          <ElTable
+            :data="result.results.crossProvinceResults"
+            empty-text="暂无已完成的跨省节点结果"
+            table-layout="auto"
+          >
+            <ElTableColumn label="探测节点" min-width="120">
+              <template #default="{ row }">{{ formatNode(row) }}</template>
+            </ElTableColumn>
+            <ElTableColumn
+              v-for="protocol in protocols"
+              :key="protocol"
+              :label="protocol.toUpperCase()"
+              min-width="105"
+              align="right"
+            >
+              <template #default="{ row }">
+                <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
+                <div class="text-xs text-g-500">丢包 {{ formatLoss(row[protocol]) }}</div>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </ElCard>
+      </div>
+
+      <ElCard v-if="isTerminalResult" shadow="never">
+        <template #header>
+          <div class="flex items-center gap-2">
+            <ArtSvgIcon icon="ri:road-map-line" class="text-lg text-theme" />
+            <span class="font-medium text-g-900">探测结果概览</span>
           </div>
         </template>
         <ElTable
-          :data="result.results.crossProvinceResults"
-          empty-text="暂无已完成的跨省节点结果"
+          :data="provinceCoverageRows"
+          :span-method="mergeProvinceCoverageCells"
+          border
           table-layout="auto"
+          empty-text="暂无可用省份概览"
         >
-          <ElTableColumn label="探测节点" min-width="120">
-            <template #default="{ row }">{{ formatNode(row) }}</template>
-          </ElTableColumn>
-          <ElTableColumn
-            v-for="protocol in protocols"
-            :key="protocol"
-            :label="protocol.toUpperCase()"
-            min-width="105"
-            align="right"
-          >
+          <ElTableColumn prop="modeLabel" label="探测类型" min-width="100" />
+          <ElTableColumn label="探测能力" min-width="120">
             <template #default="{ row }">
-              <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
-              <div class="text-xs text-g-500">丢包 {{ formatLoss(row[protocol]) }}</div>
+              <ElTag :type="row.available ? 'success' : 'info'">
+                {{ row.available ? `可${row.modeLabel}` : `不可${row.modeLabel}` }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="可达省份" min-width="240">
+            <template #default="{ row }">
+              {{ row.provinces.join('、') || '暂无' }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="异网且跨省" min-width="240">
+            <template #default="{ row }">
+              {{ row.combinedProvinces.join('、') || '暂无' }}
             </template>
           </ElTableColumn>
         </ElTable>
       </ElCard>
-    </div>
+    </template>
 
     <ElCard v-else shadow="never">
       <ElEmpty description="输入一个公网 IP，探测结果会按异网和跨省节点分别展示" />
@@ -141,8 +201,16 @@
 </template>
 
 <script setup lang="ts">
-  import type { FormInstance, FormItemRule, FormRules, TagProps } from 'element-plus'
+  import type {
+    AutocompleteFetchSuggestionsCallback,
+    AutocompleteInstance,
+    FormInstance,
+    FormItemRule,
+    FormRules,
+    TagProps
+  } from 'element-plus'
   import { fetchCreateOnDemandProbe, fetchGetOnDemandProbe } from '@/api/detection'
+  import { StorageConfig } from '@/utils/storage'
   import { validateIPAddress } from '@/utils/form/validator'
 
   defineOptions({ name: 'TemporaryIPDetection' })
@@ -150,6 +218,15 @@
   type ProtocolType = Api.Detection.ProtocolType
   type NodeResult = Api.Detection.OnDemandNodeResult
   type ProtocolResult = Api.Detection.OnDemandProtocolResult
+  interface ProvinceCoverageRow {
+    modeLabel: '异网' | '跨省'
+    available: boolean
+    provinces: string[]
+    combinedProvinces: string[]
+  }
+  interface ProbeHistorySuggestion {
+    value: string
+  }
 
   const provinceNames: Record<number, string> = {
     2: '北京',
@@ -189,13 +266,18 @@
   }
   const ispNames: Record<number, string> = { 1: '电信', 2: '移动', 3: '联通', 4: '其他运营商' }
   const protocols: ProtocolType[] = ['icmp', 'tcp', 'udp']
+  const coverageFailureThresholds = { lossRate: 1000, latencyMs: 300 }
+  const probeHistoryLimit = 10
+  const probeHistoryStorageKey = StorageConfig.generateStorageKey('temporary-ip-history')
   const terminalStatuses: Api.Detection.OnDemandProbeStatus[] = [
     'completed',
     'partial_completed',
     'failed'
   ]
   const formRef = ref<FormInstance>()
+  const autocompleteRef = ref<AutocompleteInstance>()
   const form = reactive({ targetIp: '' })
+  const probeHistory = useStorage<string[]>(probeHistoryStorageKey, [])
   const submitting = ref(false)
   const result = ref<Api.Detection.OnDemandProbeResult>()
   let pollTimer: ReturnType<typeof setTimeout> | undefined
@@ -221,6 +303,45 @@
       { required: true, message: '请输入目标 IP', trigger: 'blur' },
       { validator: validateIPRule, trigger: 'blur' }
     ]
+  }
+
+  /**
+   * 根据当前输入返回最近探测过的 IP 建议。
+   * @param queryString 当前输入框内容。
+   * @param callback Element Plus 建议列表回调。
+   * @returns 无返回值。
+   */
+  function fetchHistorySuggestions(
+    queryString: string,
+    callback: AutocompleteFetchSuggestionsCallback
+  ): void {
+    const normalizedQuery = queryString.trim().toLowerCase()
+    const suggestions: ProbeHistorySuggestion[] = probeHistory.value
+      .filter((targetIp) => targetIp.toLowerCase().startsWith(normalizedQuery))
+      .map((targetIp) => ({ value: targetIp }))
+    callback(suggestions)
+  }
+
+  /**
+   * 将成功创建探测的规范目标 IP 保存为最近使用记录。
+   * @param targetIp 后端返回的规范 IPv4 或 IPv6 地址。
+   * @returns 无返回值。
+   */
+  function rememberProbeTarget(targetIp: string): void {
+    probeHistory.value = [
+      targetIp,
+      ...probeHistory.value.filter((historyIp) => historyIp !== targetIp)
+    ].slice(0, probeHistoryLimit)
+  }
+
+  /**
+   * 删除指定探测历史并立即刷新当前建议列表。
+   * @param targetIp 需要删除的规范 IPv4 或 IPv6 地址。
+   * @returns 无返回值。
+   */
+  function removeProbeTarget(targetIp: string): void {
+    probeHistory.value = probeHistory.value.filter((historyIp) => historyIp !== targetIp)
+    void autocompleteRef.value?.getData(form.targetIp)
   }
 
   /**
@@ -259,6 +380,55 @@
     if (result.value?.status === 'failed') return 'exception'
     return undefined
   })
+  /**
+   * 判断当前执行是否已经进入不会继续变化的终态。
+   * @returns 执行完成、部分完成或失败时返回 true。
+   */
+  const isTerminalResult = computed(() =>
+    result.value ? terminalStatuses.includes(result.value.status) : false
+  )
+  /**
+   * 按异网、跨省及两者交集生成当前目标 IP 的可达省份概览。
+   * @returns 两类探测能力及同时满足两类能力的去重省份列表。
+   */
+  const provinceCoverageRows = computed<ProvinceCoverageRow[]>(() => {
+    if (!result.value) return []
+    const crossIspProvinces = collectCoveredProvinces(result.value.results.crossIspResults)
+    const crossProvinceProvinces = collectCoveredProvinces(
+      result.value.results.crossProvinceResults
+    )
+    const crossProvinceSet = new Set(crossProvinceProvinces)
+    const combinedProvinces = crossIspProvinces.filter((province) => crossProvinceSet.has(province))
+    return [
+      {
+        modeLabel: '异网',
+        available: crossIspProvinces.length > 0,
+        provinces: crossIspProvinces,
+        combinedProvinces
+      },
+      {
+        modeLabel: '跨省',
+        available: crossProvinceProvinces.length > 0,
+        provinces: crossProvinceProvinces,
+        combinedProvinces
+      }
+    ]
+  })
+
+  /**
+   * 纵向合并同时具备异网与跨省能力的可达省份列。
+   * @param context Element Plus 当前表格行与列索引。
+   * @returns 当前单元格的行列跨度。
+   */
+  function mergeProvinceCoverageCells(context: {
+    rowIndex: number
+    columnIndex: number
+  }): [number, number] {
+    if (context.columnIndex !== 3) return [1, 1]
+    if (context.rowIndex === 0) return [2, 1]
+    if (context.rowIndex === 1) return [0, 0]
+    return [1, 1]
+  }
 
   /**
    * 格式化省份和运营商编码。
@@ -277,6 +447,37 @@
    */
   function formatNode(node: NodeResult): string {
     return `${formatNetwork(node.province, node.isp)} #${node.sourceIpId}`
+  }
+
+  /**
+   * 判断节点三协议结果是否均未达到覆盖失败阈值。
+   * @param node 单个已完成节点结果。
+   * @returns 三协议均可达时返回 true。
+   */
+  function isNodeCovered(node: NodeResult): boolean {
+    return protocols.every(
+      (protocol) =>
+        node[protocol].loss_rate < coverageFailureThresholds.lossRate &&
+        node[protocol].average_latency_ms < coverageFailureThresholds.latencyMs
+    )
+  }
+
+  /**
+   * 按现有概览规则汇总未出现节点失败的已知省份。
+   * @param nodes 同一探测分类下的已完成节点结果。
+   * @returns 按省份编码排序的去重省份名称。
+   */
+  function collectCoveredProvinces(nodes: NodeResult[]): string[] {
+    const coverageByProvince = new Map<number, boolean>()
+    nodes.forEach((node) => {
+      if (node.province === null || !provinceNames[node.province]) return
+      const currentCoverage = coverageByProvince.get(node.province) ?? true
+      coverageByProvince.set(node.province, currentCoverage && isNodeCovered(node))
+    })
+    return [...coverageByProvince.entries()]
+      .filter(([, covered]) => covered)
+      .sort(([leftProvince], [rightProvince]) => leftProvince - rightProvince)
+      .map(([province]) => provinceNames[province])
   }
 
   /**
@@ -316,16 +517,18 @@
       const data = await fetchGetOnDemandProbe(queryId)
       if (activeQueryId !== queryId) return
       result.value = data
-      if (!terminalStatuses.includes(data.status)) {
-        pollTimer = setTimeout(() => void pollResult(queryId), 600)
+      if (terminalStatuses.includes(data.status)) {
+        submitting.value = false
+        return
       }
+      pollTimer = setTimeout(() => void pollResult(queryId), 600)
     } catch {
       if (activeQueryId === queryId) submitting.value = false
     }
   }
 
   /**
-   * 校验目标 IP、创建独立查询并开始刷新结果。
+   * 校验目标 IP、创建独立查询并保持加载状态直至执行终态。
    * @returns 提交与首次结果请求结束后的 Promise。
    */
   async function handleSubmit(): Promise<void> {
@@ -340,9 +543,10 @@
     result.value = undefined
     try {
       const created = await fetchCreateOnDemandProbe({ targetIp: form.targetIp.trim() })
+      rememberProbeTarget(created.targetIp)
       activeQueryId = created.queryId
       await pollResult(created.queryId)
-    } finally {
+    } catch {
       submitting.value = false
     }
   }

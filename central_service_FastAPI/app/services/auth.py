@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from time import time
+from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException
@@ -105,3 +106,18 @@ def get_current_user(
             raise HTTPException(status_code=401, detail="登录用户不存在或已取消关注")
         session.expunge(user)
         return user
+
+
+def get_current_admin(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """校验当前网页用户是否为管理员。
+
+    参数:
+        user: JWT 认证依赖解析出的当前用户。
+    返回:
+        用户等级为 9 的管理员用户。
+    """
+    if user.user_level != 9:
+        raise HTTPException(status_code=403, detail="仅管理员可使用此功能")
+    return user

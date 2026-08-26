@@ -271,11 +271,14 @@ declare namespace Api {
     /** 用户服务号告警类型 */
     type UserAlertType = 0 | 1 | 2 | 3
 
+    /** 用户等级 */
+    type UserLevel = 1 | 2 | 9
+
     /** 用户列表项 */
     interface UserListItem {
       id: number
       openid: string | null
-      userLevel: number
+      userLevel: UserLevel
       subscribeStatus: number | null
       alertType: UserAlertType
       createdTime: number | null
@@ -287,8 +290,9 @@ declare namespace Api {
         Api.Common.CommonSearchParams
     >
 
-    /** 用户服务号告警类型修改请求 */
-    interface UserAlertTypeUpdateParams {
+    /** 用户信息修改请求 */
+    interface UserUpdateParams {
+      userLevel: UserLevel
       alertType: UserAlertType
     }
 

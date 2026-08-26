@@ -51,15 +51,16 @@ class UserListResponse(BaseModel):
     data: PaginatedData[UserListItem]
 
 
-class UserAlertTypeUpdateRequest(BaseModel):
-    """修改用户服务号告警类型的请求。"""
+class UserUpdateRequest(BaseModel):
+    """修改用户等级和服务号告警类型的请求。"""
 
+    userLevel: UserLevel
     alertType: Literal[0, 1, 2, 3]
 
 
-class UserAlertTypeUpdateResponse(BaseModel):
-    """修改用户服务号告警类型的统一响应。"""
+class UserUpdateResponse(BaseModel):
+    """修改用户信息的统一响应。"""
 
     code: int = 200
-    msg: str = "用户告警类型更新成功"
+    msg: str = "用户信息更新成功"
     data: UserListItem

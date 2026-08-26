@@ -10,7 +10,8 @@ export const managementRoutes: AppRouteRecord[] = [
     component: '/system/ip-management',
     meta: {
       title: 'IP管理',
-      icon: 'ri:server-line'
+      icon: 'ri:server-line',
+      roles: ['R_ADMIN']
     }
   },
   {
@@ -19,7 +20,8 @@ export const managementRoutes: AppRouteRecord[] = [
     component: '/system/user',
     meta: {
       title: '用户管理',
-      icon: 'ri:user-settings-line'
+      icon: 'ri:user-settings-line',
+      roles: ['R_ADMIN']
     }
   }
 ]

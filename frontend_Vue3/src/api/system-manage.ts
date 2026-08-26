@@ -54,17 +54,14 @@ export function fetchGetUserList(params: Api.SystemManage.UserSearchParams) {
 }
 
 /**
- * 修改指定用户的服务号告警类型。
+ * 修改指定用户的等级和服务号告警类型。
  * @param userId users 表记录 ID。
- * @param params 新服务号告警类型。
+ * @param params 新用户等级和服务号告警类型。
  * @returns 更新后的用户记录。
  */
-export function fetchUpdateUserAlertType(
-  userId: number,
-  params: Api.SystemManage.UserAlertTypeUpdateParams
-) {
+export function fetchUpdateUser(userId: number, params: Api.SystemManage.UserUpdateParams) {
   return request.put<Api.SystemManage.UserListItem>({
-    url: `/api/user/${userId}/alert-type`,
+    url: `/api/user/${userId}`,
     params
   })
 }

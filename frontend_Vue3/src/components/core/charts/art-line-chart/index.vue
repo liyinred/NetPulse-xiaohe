@@ -332,8 +332,12 @@
       tooltip: props.showTooltip
         ? getTooltipStyle('axis', {
             ...(props.showAllTooltipSeries ? { formatter: formatAllSeriesTooltip } : {}),
-            ...(props.compactTooltip
-              ? { textStyle: { fontSize: useChartOps().smallFontSize } }
+            ...(props.compactTooltip || props.tooltipFontSize !== undefined
+              ? {
+                  textStyle: {
+                    fontSize: props.tooltipFontSize ?? useChartOps().smallFontSize
+                  }
+                }
               : {})
           })
         : undefined,
@@ -390,7 +394,17 @@
 
     // 添加图例配置
     if (props.showLegend && isMultipleData.value) {
-      options.legend = getLegendStyle(props.legendPosition)
+      const legendStyle = getLegendStyle(props.legendPosition)
+      options.legend =
+        props.legendFontSize === undefined
+          ? legendStyle
+          : {
+              ...legendStyle,
+              textStyle: {
+                ...legendStyle.textStyle,
+                fontSize: props.legendFontSize
+              }
+            }
     }
 
     // 生成系列数据

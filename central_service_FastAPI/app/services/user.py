@@ -85,14 +85,16 @@ def list_users(
     )
 
 
-def update_user_alert_type(
+def update_user(
     user_id: int,
+    user_level: int,
     alert_type: int,
 ) -> UserListItem | None:
-    """按用户 ID 修改服务号告警类型。
+    """按用户 ID 修改用户等级和服务号告警类型。
 
     参数:
         user_id: users 表记录 ID。
+        user_level: 新用户等级。
         alert_type: 新告警类型，0 表示不接收服务号告警。
     返回:
         更新后的用户管理列表项；用户不存在时返回 None。
@@ -101,6 +103,7 @@ def update_user_alert_type(
         user = session.get(User, user_id)
         if user is None:
             return None
+        user.user_level = user_level
         user.alert_type = alert_type
         user.updated_time = int(time())
         session.flush()

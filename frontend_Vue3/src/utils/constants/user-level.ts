@@ -4,6 +4,12 @@ export const USER_LEVEL_CONFIG = {
   9: { text: '管理员', type: 'danger' as const }
 }
 
+export const USER_LEVEL_OPTIONS = [
+  { label: '普通用户', value: 1 },
+  { label: '高级用户', value: 2 },
+  { label: '管理员', value: 9 }
+] as const
+
 /**
  * 获取用户等级的展示配置。
  * @param userLevel 用户等级编码。

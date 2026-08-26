@@ -1,7 +1,7 @@
 <template>
   <ElDialog
     v-model="dialogVisible"
-    title="编辑用户告警类型"
+    title="编辑用户"
     width="25%"
     align-center
     :close-on-click-modal="false"
@@ -12,6 +12,16 @@
     <ElForm ref="formRef" :model="formData" :rules="rules" label-width="auto">
       <ElFormItem label="openid">
         <ElInput :model-value="userData?.openid || '-'" disabled />
+      </ElFormItem>
+      <ElFormItem label="用户等级" prop="userLevel">
+        <ElSelect v-model="formData.userLevel" placeholder="请选择用户等级">
+          <ElOption
+            v-for="option in USER_LEVEL_OPTIONS"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </ElSelect>
       </ElFormItem>
       <ElFormItem label="告警类型" prop="alertType">
         <ElSelect v-model="formData.alertType" placeholder="请选择告警类型">
@@ -34,7 +44,8 @@
 
 <script setup lang="ts">
   import type { FormInstance, FormRules } from 'element-plus'
-  import { fetchUpdateUserAlertType } from '@/api/system-manage'
+  import { fetchUpdateUser } from '@/api/system-manage'
+  import { USER_LEVEL_OPTIONS } from '@/utils/constants'
   import { ALERT_TYPE_OPTIONS } from '../alert-type'
 
   interface Props {
@@ -54,10 +65,12 @@
   const emit = defineEmits<Emits>()
   const formRef = ref<FormInstance>()
   const submitting = ref(false)
-  const formData = reactive<{ alertType: Api.SystemManage.UserAlertType }>({
+  const formData = reactive<Api.SystemManage.UserUpdateParams>({
+    userLevel: 1,
     alertType: 0
   })
   const rules: FormRules = {
+    userLevel: [{ required: true, message: '请选择用户等级', trigger: 'change' }],
     alertType: [{ required: true, message: '请选择告警类型', trigger: 'change' }]
   }
 
@@ -67,10 +80,11 @@
   })
 
   /**
-   * 使用当前用户数据初始化告警类型表单。
+   * 使用当前用户数据初始化用户编辑表单。
    * @returns 无返回值。
    */
   const initializeForm = (): void => {
+    formData.userLevel = props.userData?.userLevel ?? 1
     formData.alertType = props.userData?.alertType ?? 0
   }
 
@@ -84,7 +98,7 @@
   )
 
   /**
-   * 关闭用户告警类型编辑弹窗。
+   * 关闭用户编辑弹窗。
    * @returns 无返回值。
    */
   const handleClose = (): void => {
@@ -93,7 +107,7 @@
   }
 
   /**
-   * 重置告警类型表单和校验状态。
+   * 重置用户编辑表单和校验状态。
    * @returns 无返回值。
    */
   const resetForm = (): void => {
@@ -102,7 +116,7 @@
   }
 
   /**
-   * 校验表单并更新当前用户的服务号告警类型。
+   * 校验表单并更新当前用户的等级和服务号告警类型。
    * @returns 无返回值。
    */
   const handleSubmit = async (): Promise<void> => {
@@ -116,10 +130,11 @@
 
     submitting.value = true
     try {
-      await fetchUpdateUserAlertType(props.userData.id, {
+      await fetchUpdateUser(props.userData.id, {
+        userLevel: formData.userLevel,
         alertType: formData.alertType
       })
-      ElMessage.success('用户告警类型更新成功')
+      ElMessage.success('用户信息更新成功')
       emit('success')
       dialogVisible.value = false
     } catch {

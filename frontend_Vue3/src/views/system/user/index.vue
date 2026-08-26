@@ -146,8 +146,8 @@
               type: 'primary',
               size: 'small',
               circle: true,
-              title: '编辑告警类型',
-              'aria-label': '编辑告警类型',
+              title: '编辑用户',
+              'aria-label': '编辑用户',
               onClick: () => openEditDialog(row)
             })
         }
@@ -166,7 +166,7 @@
   }
 
   /**
-   * 使用当前行数据打开用户告警类型编辑弹窗。
+   * 使用当前行数据打开用户编辑弹窗。
    * @param row 当前用户表格记录。
    * @returns 无返回值。
    */
@@ -176,7 +176,7 @@
   }
 
   /**
-   * 用户告警类型更新成功后刷新当前筛选结果。
+   * 用户信息更新成功后刷新当前筛选结果。
    * @returns 无返回值。
    */
   const handleDialogSuccess = (): void => {

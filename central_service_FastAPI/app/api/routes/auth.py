@@ -89,7 +89,7 @@ async def get_user_info(
     return UserInfoResponse(
         data=UserInfoData(
             buttons=[],
-            roles=["R_USER"],
+            roles=["R_ADMIN"] if user.user_level == 9 else ["R_USER"],
             userId=user.id,
             userName=f"微信用户 {user.id}",
             email="",

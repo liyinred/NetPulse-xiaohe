@@ -50,6 +50,8 @@ export interface ChartThemeConfig {
   fontSize: number
   /** 紧凑字体大小 */
   smallFontSize: number
+  /** 极小字体大小 */
+  tinyFontSize: number
   /** 默认折线宽度 */
   lineWidth: number
   /** 细折线宽度 */
@@ -218,12 +220,16 @@ export interface LineChartProps extends BaseChartProps, AxisDisplayProps, Intera
   emphasizeYAxisName?: boolean
   /** 是否使用紧凑 tooltip 字号 */
   compactTooltip?: boolean
+  /** tooltip 自定义字号 */
+  tooltipFontSize?: number
   /** emphasis 状态下是否加粗曲线 */
   thickenOnEmphasis?: boolean
   /** 是否使用 ECharts 内置颜色组 */
   useBuiltInPalette?: boolean
   /** 图例所在方向为绘图区预留的空间 */
   legendSpace?: number
+  /** 图例文字自定义字号 */
+  legendFontSize?: number
   /** 鼠标悬停图例时是否高亮关联曲线 */
   legendHoverLink?: boolean
   /** 是否允许 Shift + 鼠标左键独占显示图例对应曲线 */

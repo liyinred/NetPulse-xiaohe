@@ -9,6 +9,14 @@ conda activate pcdn-tx
 uvicorn app.main:app --reload --app-dir central_service_FastAPI --host 0.0.0.0 --port 8086
 ```
 
+## Vue3 前端部署
+
+在 `NetPulse` 文件夹根目录执行以下 shell 命令，删除旧的 `dist` 文件夹并解压新的构建产物：
+
+```bash
+sudo rm -rf frontend_Vue3/dist && sudo unzip -o frontend_Vue3/dist.zip -d frontend_Vue3/dist
+```
+
 ## Go Agent
 
 Go Agent 位于 `terminal_agent_Golang`，要求 Go 1.22 或更高版本。以下命令均在 `terminal_agent_Golang` 目录执行。

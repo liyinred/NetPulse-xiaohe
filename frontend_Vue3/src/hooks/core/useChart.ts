@@ -66,6 +66,8 @@ export const useChartOps = (): ChartThemeConfig => ({
   fontSize: 13,
   /** 紧凑字体大小 */
   smallFontSize: 12,
+  /** 极小字体大小 */
+  tinyFontSize: 11,
   /** 默认折线宽度 */
   lineWidth: 2.5,
   /** 细折线宽度 */
