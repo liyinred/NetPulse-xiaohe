@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 
 from app.models.user import User
 from app.schemas.probe import (
@@ -151,7 +152,7 @@ async def receive_probe_result(
         接收成功标志。
     """
     try:
-        save_probe_result(request)
+        await run_in_threadpool(save_probe_result, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ProbeAcceptedResponse()

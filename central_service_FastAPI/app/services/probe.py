@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.db.session import SessionLocal
 from app.models.alert_event import AlertEvent
@@ -669,8 +670,28 @@ def _get_valid_target(
             IPDict.public_status == 1,
         )
     )
+    return _validate_probe_target(device, source, target, mode)
+
+
+def _validate_probe_target(
+    device: Device,
+    source: IPDict,
+    target: IPDict | None,
+    mode: str,
+) -> IPDict:
+    """校验已加载目标的公开状态、设备归属和探测分类。
+
+    参数:
+        device: 当前 Agent 设备。
+        source: 已校验的源 IP 记录。
+        target: 待校验的目标 IP 记录，不存在时为 None。
+        mode: 上报分类。
+    返回:
+        校验通过的目标 IP 记录。
+    """
     if (
         target is None
+        or target.public_status != 1
         or target.device_related_id == device.id
         or not _matches_mode(source, target, mode)
     ):
@@ -694,14 +715,28 @@ def save_probe_result(request: ProbeResultRequest) -> None:
             request.source_ip,
             request.ip_version,
         )
+        target_ips = [str(result.target_ip) for result in request.targets]
+        if any(
+            result.target_ip.version != request.ip_version
+            for result in request.targets
+        ):
+            raise ValueError("target_ip 与 ip_version 不匹配")
+        targets_by_ip = {
+            target.ip: target
+            for target in session.scalars(
+                select(IPDict).where(
+                    IPDict.ip.in_(target_ips),
+                    IPDict.ip_version == request.ip_version,
+                    IPDict.public_status == 1,
+                )
+            ).all()
+        }
         target_results = {}
         for target_result in request.targets:
-            target = _get_valid_target(
-                session,
+            target = _validate_probe_target(
                 device,
                 source,
-                target_result.target_ip,
-                request.ip_version,
+                targets_by_ip.get(str(target_result.target_ip)),
                 request.probe_mode,
             )
             if target.id in target_results:
@@ -1058,31 +1093,79 @@ def _build_template_messages(
     return messages
 
 
-async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
-    """按上报设备校验、幂等保存并发送自然分钟聚合丢包告警。
+def _save_probe_alert_events(
+    request: ProbeAlertsRequest,
+) -> list[TemplateMessage]:
+    """校验并幂等保存自然分钟聚合告警事件。
 
     参数:
         request: Agent 上报的自然分钟聚合丢包告警。
     返回:
-        无返回值；批次中已存在的 event_id 视为成功且不重复通知。
+        数据库提交后需要发送的微信模板消息。
     """
     with SessionLocal.begin() as session:
+        event_ids = {alert.event_id for alert in request.alerts}
+        existing_event_ids = set(
+            session.scalars(
+                select(AlertEvent.event_id).where(
+                    AlertEvent.event_id.in_(event_ids)
+                )
+            ).all()
+        )
+        device_ids = {alert.device_id for alert in request.alerts}
+        devices_by_external_id = {
+            device.device_id: device
+            for device in session.scalars(
+                select(Device).where(
+                    Device.device_id.in_(device_ids),
+                    Device.user_id.is_not(None),
+                )
+            ).all()
+        }
+        requested_ips = {
+            str(address)
+            for alert in request.alerts
+            for address in (alert.source_ip, alert.target_ip)
+        }
+        ips_by_address = {
+            ip_record.ip: ip_record
+            for ip_record in session.scalars(
+                select(IPDict).where(IPDict.ip.in_(requested_ips))
+            ).all()
+        }
+        user_ids = {
+            device.user_id
+            for device in devices_by_external_id.values()
+            if device.user_id is not None
+        }
+        users_by_id = {
+            user.id: user
+            for user in session.scalars(
+                select(User).where(User.id.in_(user_ids))
+            ).all()
+        }
         template_groups = {}
         for alert in request.alerts:
-            if session.get(AlertEvent, alert.event_id) is not None:
+            if alert.event_id in existing_event_ids:
                 continue
-            device, source = _get_owned_source(
-                session,
-                alert.device_id,
-                alert.source_ip,
-                alert.ip_version,
-            )
-            target = _get_valid_target(
-                session,
+            if alert.source_ip.version != alert.ip_version:
+                raise ValueError("source_ip 与 ip_version 不匹配")
+            device = devices_by_external_id.get(alert.device_id)
+            if device is None:
+                raise ValueError("设备未绑定")
+            source = ips_by_address.get(str(alert.source_ip))
+            if (
+                source is None
+                or source.ip_version != alert.ip_version
+                or source.device_related_id != device.id
+            ):
+                raise ValueError("source_ip 不属于当前设备")
+            if alert.target_ip.version != alert.ip_version:
+                raise ValueError("target_ip 与 ip_version 不匹配")
+            target = _validate_probe_target(
                 device,
                 source,
-                alert.target_ip,
-                alert.ip_version,
+                ips_by_address.get(str(alert.target_ip)),
                 alert.probe_mode,
             )
             message = (
@@ -1100,10 +1183,8 @@ async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
                 message=message,
             )
             session.add(event)
-            related_device = session.get(Device, event.device_related_id)
-            if related_device is None or related_device.user_id is None:
-                continue
-            user = session.get(User, related_device.user_id)
+            existing_event_ids.add(alert.event_id)
+            user = users_by_id.get(device.user_id)
             if user is None:
                 continue
             openid = user.openid
@@ -1134,4 +1215,16 @@ async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
                 alert.loss_rate,
             )
         session.flush()
-        await send_template_messages(_build_template_messages(template_groups))
+    return _build_template_messages(template_groups)
+
+
+async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
+    """在线程池持久化告警，并在事务外发送微信模板消息。
+
+    参数:
+        request: Agent 上报的自然分钟聚合丢包告警。
+    返回:
+        无返回值；批次中已存在的 event_id 视为成功且不重复通知。
+    """
+    messages = await run_in_threadpool(_save_probe_alert_events, request)
+    await send_template_messages(messages)
