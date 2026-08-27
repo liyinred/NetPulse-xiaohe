@@ -137,6 +137,65 @@
           </ElTableColumn>
         </ElTableColumn>
       </ElTable>
+
+      <div class="mb-3 mt-6 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-base font-medium text-g-900">
+          昨日探测<span v-if="reportData">（{{ reportData.previousDayDate }}）</span>
+        </h2>
+        <span class="text-sm text-g-500">展示格式：全天 / 晚高峰（20:00-22:00）</span>
+      </div>
+      <ElTable :data="previousDayReportRows" border empty-text="昨日暂无探测结果">
+        <ElTableColumn prop="provinceName" label="省份" />
+        <ElTableColumn prop="ispName" label="运营商" />
+        <ElTableColumn label="ICMP" align="center">
+          <ElTableColumn label="平均丢包" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'icmp', 'loss') }">
+                {{ formatPeriodMetric(row, 'icmp', 'loss') }}
+              </span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="平均延迟" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'icmp', 'latency') }">
+                {{ formatPeriodMetric(row, 'icmp', 'latency') }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTableColumn>
+        <ElTableColumn label="TCP" align="center">
+          <ElTableColumn label="平均丢包" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'tcp', 'loss') }">
+                {{ formatPeriodMetric(row, 'tcp', 'loss') }}
+              </span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="平均延迟" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'tcp', 'latency') }">
+                {{ formatPeriodMetric(row, 'tcp', 'latency') }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTableColumn>
+        <ElTableColumn label="UDP" align="center">
+          <ElTableColumn label="平均丢包" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'udp', 'loss') }">
+                {{ formatPeriodMetric(row, 'udp', 'loss') }}
+              </span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="平均延迟" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'udp', 'latency') }">
+                {{ formatPeriodMetric(row, 'udp', 'latency') }}
+              </span>
+            </template>
+          </ElTableColumn>
+        </ElTableColumn>
+      </ElTable>
     </ElCard>
 
     <ElCard body-class="flex flex-col">
@@ -212,6 +271,14 @@
   defineOptions({ name: 'ProbeTrendPage' })
 
   type MetricType = 'loss' | 'latency'
+  type MergedPeriodReportRow = {
+    province: number | null
+    provinceName: string
+    isp: number | null
+    ispName: string
+    fullDay: Api.Detection.ProbePeriodReportRow | null
+    eveningPeak: Api.Detection.ProbePeriodReportRow | null
+  }
 
   const route = useRoute()
   const chartTheme = useChartOps()
@@ -259,6 +326,9 @@
   const chartSeries = computed<LineDataItem[]>(() =>
     buildChartSeries(trendData.value, timeIds.value, metric.value)
   )
+  const previousDayReportRows = computed(() =>
+    mergePeriodReportRows(reportData.value?.previousDayRows ?? [])
+  )
 
   /**
    * 格式化报告表格中的协议平均指标。
@@ -273,6 +343,67 @@
     if (!summary) return '-'
     if (selectedMetric === 'loss') return `${summary.lossRate.toFixed(1)}%`
     return summary.averageLatencyMs === null ? '-' : `${summary.averageLatencyMs.toFixed(1)} ms`
+  }
+
+  /**
+   * 将昨日分时结果合并为每个省份和运营商一行。
+   * @param rows 后端返回的全天和晚高峰分组结果。
+   * @returns 按目标省份和运营商合并后的表格行。
+   */
+  function mergePeriodReportRows(
+    rows: Api.Detection.ProbePeriodReportRow[]
+  ): MergedPeriodReportRow[] {
+    const mergedRows = new Map<string, MergedPeriodReportRow>()
+    for (const row of rows) {
+      const rowKey = `${row.province ?? 'unknown'}:${row.isp ?? 'unknown'}`
+      const mergedRow = mergedRows.get(rowKey) ?? {
+        province: row.province,
+        provinceName: row.provinceName,
+        isp: row.isp,
+        ispName: row.ispName,
+        fullDay: null,
+        eveningPeak: null
+      }
+      if (row.period === 'full_day') mergedRow.fullDay = row
+      else mergedRow.eveningPeak = row
+      mergedRows.set(rowKey, mergedRow)
+    }
+    return Array.from(mergedRows.values())
+  }
+
+  /**
+   * 按全天、晚高峰顺序格式化昨日对比指标。
+   * @param row 合并后的目标网络报告行。
+   * @param protocol 协议类型。
+   * @param selectedMetric 待展示的丢包或延迟指标。
+   * @returns 使用斜杠分隔的全天值和晚高峰值。
+   */
+  function formatPeriodMetric(
+    row: MergedPeriodReportRow,
+    protocol: Api.Detection.ProtocolType,
+    selectedMetric: MetricType
+  ): string {
+    const fullDaySummary = row.fullDay?.[protocol] ?? null
+    const peakSummary = row.eveningPeak?.[protocol] ?? null
+    return `${formatReportMetric(fullDaySummary, selectedMetric)} / ${formatReportMetric(peakSummary, selectedMetric)}`
+  }
+
+  /**
+   * 判断全天或晚高峰指标是否达到标红阈值。
+   * @param row 合并后的目标网络报告行。
+   * @param protocol 协议类型。
+   * @param selectedMetric 待判断的丢包或延迟指标。
+   * @returns 任一时段达到对应失败阈值时返回 true。
+   */
+  function isPeriodMetricAlert(
+    row: MergedPeriodReportRow,
+    protocol: Api.Detection.ProtocolType,
+    selectedMetric: MetricType
+  ): boolean {
+    return (
+      isReportMetricAlert(row.fullDay?.[protocol] ?? null, selectedMetric) ||
+      isReportMetricAlert(row.eveningPeak?.[protocol] ?? null, selectedMetric)
+    )
   }
 
   /**

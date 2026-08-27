@@ -141,6 +141,18 @@ declare namespace Api {
       udp: ProbeProtocolSummary | null
     }
 
+    /** 昨日指定目标网络和时段内的三协议平均结果 */
+    interface ProbePeriodReportRow {
+      province: number | null
+      provinceName: string
+      isp: number | null
+      ispName: string
+      period: 'full_day' | 'evening_peak'
+      icmp: ProbeProtocolSummary | null
+      tcp: ProbeProtocolSummary | null
+      udp: ProbeProtocolSummary | null
+    }
+
     /** 当前节点和时间窗口的概括性覆盖报告 */
     interface ProbeReportData {
       sourceProvinceName: string
@@ -149,6 +161,8 @@ declare namespace Api {
       crossProvinceCovered: boolean
       coveredProvinces: string[]
       rows: ProbeReportRow[]
+      previousDayDate: string
+      previousDayRows: ProbePeriodReportRow[]
     }
 
     /** 探测概览查询参数 */

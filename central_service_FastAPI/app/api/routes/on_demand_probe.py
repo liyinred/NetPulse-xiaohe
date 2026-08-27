@@ -4,6 +4,7 @@ import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 
 from app.models.user import User
 from app.schemas.on_demand_probe import (
@@ -84,11 +85,12 @@ async def poll_on_demand_task(
         八秒内领取到的任务；无任务时返回空 data。
     """
     try:
-        for _ in range(9):
-            task = claim_on_demand_task(device_id)
+        for attempt in range(9):
+            task = await run_in_threadpool(claim_on_demand_task, device_id)
             if task is not None:
                 return OnDemandTaskResponse(data=task)
-            await asyncio.sleep(1)
+            if attempt < 8:
+                await asyncio.sleep(1)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return OnDemandTaskResponse()

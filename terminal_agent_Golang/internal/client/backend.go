@@ -16,7 +16,7 @@ import (
 
 const (
 	pollInterval        = 2 * time.Second
-	onDemandPollTimeout = 15 * time.Second
+	onDemandPollTimeout = 20 * time.Second
 	publicIPv6URL       = "http://6.itdog.cn"
 )
 
@@ -129,7 +129,7 @@ func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
 	}
 	response, err := backend.publicIPv6Client.Do(request)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("获取公网 IPv6 失败: %w", safeRequestError(err))
+		return netip.Addr{}, fmt.Errorf("获取公网 IPv6 失败: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -137,7 +137,7 @@ func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize))
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("读取公网 IPv6 服务响应失败: %w", safeRequestError(err))
+		return netip.Addr{}, fmt.Errorf("读取公网 IPv6 服务响应失败: %w", err)
 	}
 	publicIP, err := netip.ParseAddr(strings.TrimSpace(string(body)))
 	if err != nil || !publicIP.Is6() || !publicIP.IsGlobalUnicast() || publicIP.IsPrivate() {

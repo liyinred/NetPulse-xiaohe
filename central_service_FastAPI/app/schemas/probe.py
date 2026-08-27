@@ -141,6 +141,19 @@ class ProbeReportRow(BaseModel):
     udp: ProbeProtocolSummary | None = None
 
 
+class ProbePeriodReportRow(BaseModel):
+    """保存昨日指定目标网络和时段内的三协议平均探测结果。"""
+
+    province: int | None
+    provinceName: str
+    isp: int | None
+    ispName: str
+    period: Literal["full_day", "evening_peak"]
+    icmp: ProbeProtocolSummary | None = None
+    tcp: ProbeProtocolSummary | None = None
+    udp: ProbeProtocolSummary | None = None
+
+
 class ProbeReportData(BaseModel):
     """保存当前节点和时间窗口的概括性覆盖报告。"""
 
@@ -150,6 +163,8 @@ class ProbeReportData(BaseModel):
     crossProvinceCovered: bool
     coveredProvinces: list[str]
     rows: list[ProbeReportRow]
+    previousDayDate: str
+    previousDayRows: list[ProbePeriodReportRow]
 
 
 class ProbeReportResponse(BaseModel):

@@ -22,6 +22,7 @@ from app.models.user import User
 from app.schemas.probe import (
     ProbeAlertsRequest,
     ProbeNodeItem,
+    ProbePeriodReportRow,
     ProbeProtocolSummary,
     ProbeRangeType,
     ProbeReportData,
@@ -58,6 +59,28 @@ PROBE_STATE_MODELS = {
     "tcp": TCPProbeState,
     "udp": UDPProbeState,
 }
+
+
+def _build_protocol_summary(
+    loss_rate: float | None,
+    rtt_ms: float | None,
+) -> ProbeProtocolSummary | None:
+    """将数据库聚合值转换为前端使用的协议摘要。
+
+    参数:
+        loss_rate: 数据库存储的千分比平均丢包率；无样本时为 None。
+        rtt_ms: 排除超时后的平均延迟；无有效延迟时为 None。
+    返回:
+        换算为百分比并完成取整的协议摘要；无样本时返回 None。
+    """
+    if loss_rate is None:
+        return None
+    return ProbeProtocolSummary(
+        lossRate=round(float(loss_rate) / 10, 1),
+        averageLatencyMs=(
+            round(float(rtt_ms), 1) if rtt_ms is not None else None
+        ),
+    )
 
 
 def _get_user_probe_source_network(
@@ -99,6 +122,8 @@ def _build_probe_report(
     probe_mode: int,
     start_time: int,
     end_time: int,
+    previous_day_date: str,
+    previous_day_rows: list[ProbePeriodReportRow],
 ) -> ProbeReportData:
     """按目标省份和运营商汇总时间窗口内的三协议探测结果。
 
@@ -112,6 +137,8 @@ def _build_probe_report(
         probe_mode: 探测模式编码，1 为异网，2 为跨省。
         start_time: 查询起始 Unix 时间戳。
         end_time: 查询结束 Unix 时间戳。
+        previous_day_date: 北京时间前一天的日期。
+        previous_day_rows: 前一天全天及晚高峰的平均结果。
     返回:
         覆盖概况及按省份、运营商聚合的三协议平均结果，延迟平均值排除 300ms 超时。
     """
@@ -170,14 +197,7 @@ def _build_probe_report(
             setattr(
                 report_row,
                 protocol_type,
-                ProbeProtocolSummary(
-                    lossRate=round(float(record.loss_rate) / 10, 1),
-                    averageLatencyMs=(
-                        round(float(record.rtt_ms), 1)
-                        if record.rtt_ms is not None
-                        else None
-                    ),
-                ),
+                _build_protocol_summary(record.loss_rate, record.rtt_ms),
             )
 
     rows = sorted(
@@ -194,7 +214,129 @@ def _build_probe_report(
         ),
         coveredProvinces=covered_provinces,
         rows=rows,
+        previousDayDate=previous_day_date,
+        previousDayRows=previous_day_rows,
     )
+
+
+def _build_previous_day_report(
+    session: Session,
+    user_id: int,
+    user_level: int,
+    source_ip_id: int,
+    probe_mode: int,
+    current_time: int,
+) -> tuple[str, list[ProbePeriodReportRow]]:
+    """按目标省份和运营商汇总前一天全天及晚高峰的探测结果。
+
+    参数:
+        session: 当前数据库会话。
+        user_id: 当前登录用户的内部主键。
+        user_level: 当前登录用户的等级。
+        source_ip_id: 用户选择的源 IP 记录主键。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+        current_time: 用于确定前一天的 Unix 秒时间戳。
+    返回:
+        前一天日期及按目标网络分组的全天、晚高峰三协议平均结果。
+    """
+    previous_day_start = (
+        datetime.fromtimestamp(current_time, ALERT_TIME_ZONE) - timedelta(days=1)
+    ).replace(hour=0, minute=0, second=0, microsecond=0)
+    full_day_start = int(previous_day_start.timestamp())
+    full_day_end = int((previous_day_start + timedelta(days=1)).timestamp()) - 60
+    peak_start = int(previous_day_start.replace(hour=20).timestamp())
+    peak_end = int(previous_day_start.replace(hour=22).timestamp()) - 60
+    rows: dict[
+        tuple[int | None, int | None, str], ProbePeriodReportRow
+    ] = {}
+
+    for protocol_type, state_model in PROBE_STATE_MODELS.items():
+        statement = select(
+            IPDict.province,
+            IPDict.isp,
+            func.avg(state_model.loss_rate).label("full_day_loss_rate"),
+            func.avg(
+                case(
+                    (
+                        state_model.rtt_ms < REPORT_LATENCY_FAILURE_MS,
+                        state_model.rtt_ms,
+                    )
+                )
+            ).label("full_day_rtt_ms"),
+            func.avg(
+                case(
+                    (
+                        state_model.time_id.between(peak_start, peak_end),
+                        state_model.loss_rate,
+                    )
+                )
+            ).label("peak_loss_rate"),
+            func.avg(
+                case(
+                    (
+                        state_model.time_id.between(peak_start, peak_end),
+                        case(
+                            (
+                                state_model.rtt_ms < REPORT_LATENCY_FAILURE_MS,
+                                state_model.rtt_ms,
+                            )
+                        ),
+                    )
+                )
+            ).label("peak_rtt_ms"),
+        ).join(
+            IPDict, IPDict.id == state_model.target_ip_id
+        ).where(
+            state_model.source_ip_id == source_ip_id,
+            state_model.probe_mode == probe_mode,
+            state_model.time_id.between(full_day_start, full_day_end),
+        ).group_by(
+            IPDict.province,
+            IPDict.isp,
+        )
+        if user_level < UserLevel.PREMIUM:
+            statement = statement.where(
+                state_model.device_related_id.in_(
+                    select(Device.id).where(Device.user_id == user_id)
+                )
+            )
+        for record in session.execute(statement).all():
+            period_values = (
+                (
+                    "full_day",
+                    record.full_day_loss_rate,
+                    record.full_day_rtt_ms,
+                ),
+                ("evening_peak", record.peak_loss_rate, record.peak_rtt_ms),
+            )
+            for period, loss_rate, rtt_ms in period_values:
+                row_key = (record.province, record.isp, period)
+                row = rows.setdefault(
+                    row_key,
+                    ProbePeriodReportRow(
+                        province=record.province,
+                        provinceName=PROVINCE_NAMES.get(record.province, "未知"),
+                        isp=record.isp,
+                        ispName=ISP_NAMES.get(record.isp, "未知"),
+                        period=period,
+                    ),
+                )
+                setattr(
+                    row,
+                    protocol_type,
+                    _build_protocol_summary(loss_rate, rtt_ms),
+                )
+
+    period_order = {"full_day": 0, "evening_peak": 1}
+    sorted_rows = sorted(
+        rows.values(),
+        key=lambda row: (
+            row.province or 0,
+            row.isp or 0,
+            period_order[row.period],
+        ),
+    )
+    return previous_day_start.strftime("%Y-%m-%d"), sorted_rows
 
 
 def _has_probe_report_failure(row: ProbeReportRow) -> bool:
@@ -725,10 +867,11 @@ def get_user_probe_report(
     返回:
         按省份、运营商聚合的三协议概览报告。
     """
+    report_current_time = int(time()) if current_time is None else current_time
     start_time, end_time = _resolve_probe_time_range(
         range_type,
         month,
-        int(time()) if current_time is None else current_time,
+        report_current_time,
     )
     with SessionLocal() as session:
         source_province, source_isp = _get_user_probe_source_network(
@@ -736,6 +879,14 @@ def get_user_probe_report(
             user_id,
             user_level,
             source_ip_id,
+        )
+        previous_day_date, previous_day_rows = _build_previous_day_report(
+            session,
+            user_id,
+            user_level,
+            source_ip_id,
+            probe_mode,
+            report_current_time,
         )
         return _build_probe_report(
             session,
@@ -747,6 +898,8 @@ def get_user_probe_report(
             probe_mode,
             start_time,
             end_time,
+            previous_day_date,
+            previous_day_rows,
         )
 
 

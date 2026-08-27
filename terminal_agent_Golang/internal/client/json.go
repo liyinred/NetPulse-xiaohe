@@ -60,7 +60,7 @@ func executeJSONRequest(
 ) error {
 	response, err := httpClient.Do(request)
 	if err != nil {
-		return safeRequestError(err)
+		return err
 	}
 	defer response.Body.Close()
 
@@ -71,29 +71,9 @@ func executeJSONRequest(
 	if err := json.NewDecoder(limitedBody).Decode(destination); err != nil {
 		var networkError net.Error
 		if errors.As(err, &networkError) {
-			return fmt.Errorf("读取服务响应失败: %w", safeRequestError(err))
+			return fmt.Errorf("读取服务响应失败: %w", err)
 		}
 		return fmt.Errorf("解析服务响应失败: %w", err)
 	}
 	return nil
-}
-
-// safeRequestError 将 HTTP 请求错误转换为不包含真实接口地址的终端错误。
-//
-// 参数:
-//   - err: http.Client 执行请求时返回的原始错误。
-//
-// 返回值: 仅描述取消、超时或连接失败类型的安全错误。
-func safeRequestError(err error) error {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return errors.New("请求已取消")
-	case errors.Is(err, context.DeadlineExceeded):
-		return errors.New("请求超时")
-	}
-	var networkError net.Error
-	if errors.As(err, &networkError) && networkError.Timeout() {
-		return errors.New("请求超时")
-	}
-	return errors.New("网络连接失败")
 }
