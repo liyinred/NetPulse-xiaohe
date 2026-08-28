@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	onDemandRetryDelay        = time.Second
-	onDemandSubmitMaxAttempts = 3
+	onDemandPollRetryDelay    = time.Second
+	onDemandSubmitRetryDelay  = 500 * time.Millisecond
+	onDemandSubmitMaxAttempts = 5
 )
 
 // OnDemandRunner 长轮询、执行并上报临时 IP 按需探测任务。
@@ -62,7 +63,7 @@ func (runner *OnDemandRunner) Run(ctx context.Context) error {
 				return ctx.Err()
 			}
 			fmt.Fprintf(runner.output, "轮询临时 IP 探测任务失败: %v\n", err)
-			if err := waitUntil(ctx, time.Now().Add(onDemandRetryDelay)); err != nil {
+			if err := waitUntil(ctx, time.Now().Add(onDemandPollRetryDelay)); err != nil {
 				return err
 			}
 			continue
@@ -136,9 +137,9 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 		fmt.Fprintf(
 			runner.output,
 			"临时 IP 探测任务 %d 第 %d/%d 次上报失败，将在 %s 后重试: %v\n",
-			task.ID, attempt, onDemandSubmitMaxAttempts, onDemandRetryDelay, submitErr,
+			task.ID, attempt, onDemandSubmitMaxAttempts, onDemandSubmitRetryDelay, submitErr,
 		)
-		if err := waitUntil(ctx, time.Now().Add(onDemandRetryDelay)); err != nil {
+		if err := waitUntil(ctx, time.Now().Add(onDemandSubmitRetryDelay)); err != nil {
 			submitErr = err
 			break
 		}
