@@ -20,7 +20,7 @@ import (
 
 const (
 	backendBaseURL  = "http://175.4.50.59:8086"
-	requestTimeout  = 10 * time.Second
+	requestTimeout  = 3 * time.Second
 	ipv4RetryDelay  = 3 * time.Second
 	ipv4MaxAttempts = 3
 )

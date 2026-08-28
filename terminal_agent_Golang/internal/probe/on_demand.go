@@ -12,6 +12,8 @@ import (
 )
 
 const (
+	onDemandInitRetryDelay    = 300 * time.Millisecond
+	onDemandInitMaxAttempts   = 3
 	onDemandRetryDelay        = time.Second
 	onDemandSubmitMaxAttempts = 3
 )
@@ -73,7 +75,7 @@ func (runner *OnDemandRunner) Run(ctx context.Context) error {
 	}
 }
 
-// executeTask 校验、执行并有限重试上报一个节点任务。
+// executeTask 校验任务，有限重试初始化后执行探测并上报结果。
 //
 // 参数:
 //   - ctx: 控制 Agent 全局退出的 Context。
@@ -86,10 +88,29 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 		fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 无效: %v\n", task.ID, err)
 		return
 	}
-	driver, err := newICMPDriver(task.IPVersion)
-	if err != nil {
-		fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 初始化失败: %v\n", task.ID, err)
-		return
+	var driver *icmpDriver
+	for attempt := 1; attempt <= onDemandInitMaxAttempts; attempt++ {
+		driver, err = newICMPDriver(task.IPVersion)
+		if err == nil {
+			break
+		}
+		if attempt == onDemandInitMaxAttempts {
+			fmt.Fprintf(
+				runner.output,
+				"临时 IP 探测任务 %d 初始化失败，已尝试 %d 次: %v\n",
+				task.ID, onDemandInitMaxAttempts, err,
+			)
+			return
+		}
+		fmt.Fprintf(
+			runner.output,
+			"临时 IP 探测任务 %d 第 %d/%d 次初始化失败，将在 %s 后重试: %v\n",
+			task.ID, attempt, onDemandInitMaxAttempts, onDemandInitRetryDelay, err,
+		)
+		if err := waitUntil(ctx, time.Now().Add(onDemandInitRetryDelay)); err != nil {
+			fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 初始化重试已停止: %v\n", task.ID, err)
+			return
+		}
 	}
 	defer driver.Close()
 

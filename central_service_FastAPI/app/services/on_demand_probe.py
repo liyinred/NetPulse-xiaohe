@@ -21,7 +21,7 @@ from app.services.network import NetworkInfo, lookup_network
 
 
 EXECUTION_DEADLINE_SECONDS = 15
-NODE_ONLINE_SECONDS = 10
+NODE_ONLINE_SECONDS = 8
 QUERY_RETENTION_SECONDS = 24 * 60 * 60
 
 EXECUTION_STATUS_NAMES = {
@@ -261,8 +261,7 @@ def save_on_demand_result(request: OnDemandResultRequest) -> None:
             raise ValueError("任务完成时间不能早于开始时间")
         task.result_data = result_data
         task.status = 3
-        task.started_at = request.started_at
-        task.finished_at = request.finished_at
+        task.finished_at = current_time
         _finalize_execution(session, execution, current_time)
 
 
