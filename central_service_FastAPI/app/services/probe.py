@@ -546,8 +546,6 @@ async def discover_probe_targets(
     current_time = int(time())
     with SessionLocal.begin() as session:
         device = _get_device(session, request.device_id)
-        device.last_seen_at = current_time
-        device.updated_time = current_time
         _upsert_ip_record(
             session,
             device.id,
@@ -564,6 +562,8 @@ async def discover_probe_targets(
                 ipv6_network_info,
             )
         session.flush()
+        device.last_seen_at = current_time
+        device.updated_time = current_time
         source_ipv4 = session.scalar(
             select(IPDict).where(IPDict.ip == str(request.source_ipv4))
         )

@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	probeCount              = 100
-	maximumAverageLatencyMS = 300
-	windowLength            = time.Minute
-	reportJitterWindow      = 10 * time.Second
+	probeCount                   = 100
+	maximumAverageLatencyMS      = 300
+	windowLength                 = time.Minute
+	reportJitterWindow           = 10 * time.Second
+	probeResultSubmitRetryDelay  = 500 * time.Millisecond
+	probeResultSubmitMaxAttempts = 5
 )
 
 var protocolNames = []string{"icmp", "tcp", "udp"}
@@ -592,11 +594,42 @@ func (engine *Engine) submitWindowResults(
 				windowEnd,
 				"分钟探测结果上报失败",
 				func(submitContext context.Context) error {
-					return engine.backend.SubmitProbeResult(submitContext, request)
+					return engine.submitProbeResultWithRetry(submitContext, request)
 				},
 			)
 		}
 	}
+}
+
+// submitProbeResultWithRetry 以固定间隔有限重试上报分钟探测结果。
+//
+// 参数:
+//   - ctx: 控制重试等待和 HTTP 请求取消的 Context。
+//   - request: 待上报的跨省或异网分钟结果。
+//
+// 返回值: 上报成功时返回 nil；达到最大次数或取消时返回最终错误。
+func (engine *Engine) submitProbeResultWithRetry(
+	ctx context.Context,
+	request client.ProbeResultRequest,
+) error {
+	var submitErr error
+	for attempt := 1; attempt <= probeResultSubmitMaxAttempts; attempt++ {
+		submitErr = engine.backend.SubmitProbeResult(ctx, request)
+		if submitErr == nil {
+			return nil
+		}
+		if attempt == probeResultSubmitMaxAttempts {
+			break
+		}
+		if err := waitUntil(ctx, time.Now().Add(probeResultSubmitRetryDelay)); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf(
+		"分钟探测结果上报已尝试 %d 次: %w",
+		probeResultSubmitMaxAttempts,
+		submitErr,
+	)
 }
 
 // submitWithJitter 在窗口结束后的随机十秒内异步执行一次上报。
