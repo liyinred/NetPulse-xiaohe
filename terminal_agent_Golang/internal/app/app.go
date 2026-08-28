@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,9 +25,10 @@ const (
 	requestTimeout  = 3 * time.Second
 	ipv4RetryDelay  = 3 * time.Second
 	ipv4MaxAttempts = 3
+	logFileName     = "netpulse-agent.log"
 )
 
-// Run 每次通过二维码更新设备绑定，并按用户确认启动持续探测。
+// Run 初始化接口日志，每次通过二维码更新设备绑定，并按用户确认启动持续探测。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
@@ -38,16 +41,18 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-
-	agentConfig, created, err := config.LoadOrCreate(configPath)
+	logFile, err := openLogFile(configPath)
 	if err != nil {
 		return err
 	}
-	if created {
-		fmt.Fprintf(output, "已创建配置文件: %s\n", configPath)
+	defer logFile.Close()
+
+	agentConfig, _, err := config.LoadOrCreate(configPath)
+	if err != nil {
+		return err
 	}
 
-	backend := client.NewBackend(backendBaseURL, requestTimeout)
+	backend := client.NewBackend(backendBaseURL, requestTimeout, logFile)
 	deviceID := agentConfig.DeviceID()
 	needsNewDeviceID := deviceID == ""
 	if !needsNewDeviceID {
@@ -132,6 +137,21 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		output,
 	)
 	return probeEngine.Run(ctx)
+}
+
+// openLogFile 在配置文件同目录打开默认追加日志文件。
+//
+// 参数:
+//   - configPath: Agent 配置文件的绝对路径。
+//
+// 返回值: 可追加写入的日志文件；创建或打开失败时返回错误。
+func openLogFile(configPath string) (*os.File, error) {
+	logPath := filepath.Join(filepath.Dir(configPath), logFileName)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("创建日志文件失败: %w", err)
+	}
+	return logFile, nil
 }
 
 // confirmContinuousProbe 显示数字选项并监听用户输入。

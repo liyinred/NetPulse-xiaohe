@@ -28,6 +28,7 @@ type Backend struct {
 	httpClient       *http.Client
 	onDemandClient   *http.Client
 	publicIPv6Client *http.Client
+	errorOutput      io.Writer
 }
 
 // QRCode 保存微信登录二维码信息。
@@ -67,14 +68,19 @@ type BindingInfo struct {
 // 参数:
 //   - baseURL: FastAPI 后端基础 URL。
 //   - timeout: 普通 HTTP 请求的单次超时时间。
+//   - errorOutput: 接收非成功 HTTP 响应日志的 Writer。
 //
 // 返回值: 可用于中央服务访问和公网 IPv6 查询的 Backend。
-func NewBackend(baseURL string, timeout time.Duration) *Backend {
+func NewBackend(baseURL string, timeout time.Duration, errorOutput io.Writer) *Backend {
+	if errorOutput == nil {
+		errorOutput = io.Discard
+	}
 	return &Backend{
 		baseURL:          strings.TrimRight(baseURL, "/"),
 		httpClient:       newHTTPClient("tcp4", timeout, true),
 		onDemandClient:   newHTTPClient("tcp4", onDemandPollTimeout, true),
 		publicIPv6Client: newHTTPClient("tcp6", timeout, false),
+		errorOutput:      errorOutput,
 	}
 }
 
@@ -132,12 +138,13 @@ func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("获取公网 IPv6 失败: %w", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return netip.Addr{}, fmt.Errorf("公网 IPv6 服务返回 HTTP %d", response.StatusCode)
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, maxResponseSize))
+	if readErr != nil {
+		return netip.Addr{}, fmt.Errorf("读取公网 IPv6 服务响应失败: %w", readErr)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize))
-	if err != nil {
-		return netip.Addr{}, fmt.Errorf("读取公网 IPv6 服务响应失败: %w", err)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		logHTTPResponseError(backend.errorOutput, request, response.StatusCode, body)
+		return netip.Addr{}, fmt.Errorf("公网 IPv6 服务返回 HTTP %d", response.StatusCode)
 	}
 	publicIP, err := netip.ParseAddr(strings.TrimSpace(string(body)))
 	if err != nil || !publicIP.Is6() || !publicIP.IsGlobalUnicast() || publicIP.IsPrivate() {
@@ -164,7 +171,7 @@ func (backend *Backend) DeviceExists(
 	}
 
 	var response deviceExistsResponse
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.httpClient, request, &response, backend.errorOutput); err != nil {
 		return false, fmt.Errorf("校验设备标识失败: %w", err)
 	}
 	return response.Exists, nil
@@ -196,7 +203,7 @@ func (backend *Backend) getPublicIP(
 	}
 
 	var response publicIPResponse
-	if err := executeJSONRequest(httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(httpClient, request, &response, backend.errorOutput); err != nil {
 		return netip.Addr{}, fmt.Errorf("获取公网 IPv%d 失败: %w", expectedVersion, err)
 	}
 	publicIP, err := netip.ParseAddr(response.PublicIP)
@@ -228,7 +235,7 @@ func (backend *Backend) RequestQRCode(ctx context.Context) (QRCode, error) {
 	}
 
 	var response QRCode
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.httpClient, request, &response, backend.errorOutput); err != nil {
 		return QRCode{}, fmt.Errorf("申请二维码失败: %w", err)
 	}
 	if response.SceneString == "" || response.URL == "" || response.ExpireSeconds <= 0 {
@@ -322,7 +329,7 @@ func (backend *Backend) checkLogin(
 	}
 
 	var response qrCodeStatusResponse
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.httpClient, request, &response, backend.errorOutput); err != nil {
 		return nil, fmt.Errorf("查询登录状态失败: %w", err)
 	}
 	if !response.Matched {

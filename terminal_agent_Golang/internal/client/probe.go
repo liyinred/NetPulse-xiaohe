@@ -145,7 +145,7 @@ func (backend *Backend) FetchProbeTargets(
 		return ProbeTargets{}, fmt.Errorf("创建探测目标请求失败: %w", err)
 	}
 	var response ProbeTargets
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.httpClient, request, &response, backend.errorOutput); err != nil {
 		return ProbeTargets{}, fmt.Errorf("查询探测目标失败: %w", err)
 	}
 	return response, nil
@@ -196,7 +196,7 @@ func (backend *Backend) PollOnDemandTask(
 		return nil, fmt.Errorf("创建按需任务轮询请求失败: %w", err)
 	}
 	var response onDemandTaskResponse
-	if err := executeJSONRequest(backend.onDemandClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.onDemandClient, request, &response, backend.errorOutput); err != nil {
 		return nil, fmt.Errorf("轮询按需探测任务失败: %w", err)
 	}
 	return response.Data, nil
@@ -239,7 +239,7 @@ func (backend *Backend) submitProbePayload(
 		return fmt.Errorf("创建探测上报请求失败: %w", err)
 	}
 	var response probeAcceptedResponse
-	if err := executeJSONRequest(backend.httpClient, request, &response); err != nil {
+	if err := executeJSONRequest(backend.httpClient, request, &response, backend.errorOutput); err != nil {
 		return fmt.Errorf("提交探测上报失败: %w", err)
 	}
 	if !response.Accepted {
