@@ -28,7 +28,7 @@ const (
 	logFileName     = "netpulse-agent.log"
 )
 
-// Run 初始化接口日志，每次通过二维码更新设备绑定，并按用户确认启动持续探测。
+// Run 初始化 Linux 防火墙和接口日志，每次通过二维码更新设备绑定，并按用户确认启动持续探测。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
@@ -46,6 +46,17 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 	defer logFile.Close()
+	firewallBackend, err := configureLinuxFirewall(ctx)
+	if err != nil {
+		return err
+	}
+	if firewallBackend != "" {
+		fmt.Fprintf(
+			output,
+			"Linux %s 已放行 UDP 33434 和 TCP 80 的入站及出站流量。\n",
+			firewallBackend,
+		)
+	}
 
 	agentConfig, _, err := config.LoadOrCreate(configPath)
 	if err != nil {
