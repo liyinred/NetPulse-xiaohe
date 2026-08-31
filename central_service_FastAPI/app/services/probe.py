@@ -1,5 +1,6 @@
 """持续探测目标发现、结果和告警持久化服务。"""
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -40,6 +41,7 @@ from app.schemas.user import UserLevel
 from app.services.device import _upsert_ip_record
 from app.services.network import (
     ISP_NAMES,
+    IPLookupError,
     PROVINCE_NAMES,
     format_probe_node_label,
     format_probe_node_name,
@@ -47,6 +49,8 @@ from app.services.network import (
 )
 from app.services.wechat import TemplateMessage, send_template_messages
 
+
+logger = logging.getLogger(__name__)
 
 PROBE_MODE_CODES = {"cross_isp": 1, "cross_province": 2}
 PROTOCOL_CODES = {"icmp": 1, "tcp": 2, "udp": 3}
@@ -542,7 +546,13 @@ async def discover_probe_targets(
     ipv4_network_info = await lookup_network(request.source_ipv4)
     ipv6_network_info = None
     if request.source_ipv6 is not None:
-        ipv6_network_info = await lookup_network(request.source_ipv6)
+        try:
+            ipv6_network_info = await lookup_network(request.source_ipv6)
+        except IPLookupError as exc:
+            logger.warning(
+                "IPv6 归属查询失败，本次仅返回 IPv4 探测目标: %s",
+                exc,
+            )
     current_time = int(time())
     with SessionLocal.begin() as session:
         device = _get_device(session, request.device_id)
@@ -589,16 +599,20 @@ async def discover_probe_targets(
             )
             if source_ipv6 is None:
                 raise RuntimeError("IPv6 源地址刷新失败")
-            response.cross_isp_ipv6_targets = _load_targets(
-                session, source_ipv6, device, 6, "cross_isp"
-            )
-            response.cross_province_ipv6_targets = _load_targets(
-                session,
-                source_ipv6,
-                device,
-                6,
-                "cross_province",
-            )
+            if ipv6_network_info is None:
+                response.cross_isp_ipv6_targets = []
+                response.cross_province_ipv6_targets = []
+            else:
+                response.cross_isp_ipv6_targets = _load_targets(
+                    session, source_ipv6, device, 6, "cross_isp"
+                )
+                response.cross_province_ipv6_targets = _load_targets(
+                    session,
+                    source_ipv6,
+                    device,
+                    6,
+                    "cross_province",
+                )
     target_lists = (
         response.cross_isp_ipv4_targets,
         response.cross_province_ipv4_targets,

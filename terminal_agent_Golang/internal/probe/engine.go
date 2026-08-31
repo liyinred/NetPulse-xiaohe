@@ -203,7 +203,8 @@ func (engine *Engine) fetchTargets(ctx context.Context) (TargetSnapshot, error) 
 //   - snapshot: 本窗口使用的目标快照。
 //   - drivers: 按 IP 版本索引的共享 ICMP Driver。
 //
-// 返回值: 各源地址的目标统计；窗口被取消或 ICMP Driver 终止时返回错误。
+// 返回值: 各源地址的目标统计；窗口被取消或 ICMP Driver 终止时返回错误；
+// 探测次数不足时记录告警并按实际完成数返回。
 func (engine *Engine) runWindow(
 	ctx context.Context,
 	windowStart time.Time,
@@ -251,7 +252,11 @@ func (engine *Engine) runWindow(
 		}
 	}
 	if err := validateWindowResults(results); err != nil {
-		return nil, err
+		fmt.Fprintf(
+			engine.output,
+			"探测窗口未完整，按实际完成次数继续上报: %v\n",
+			err,
+		)
 	}
 	return results, nil
 }

@@ -5,6 +5,7 @@ from ipaddress import IPv4Address, IPv6Address, ip_address
 import time
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -52,36 +53,61 @@ async def create_probe_query(
     current_time = int(time.time())
     active_key = sha256(canonical_ip.encode("ascii")).hexdigest()
 
-    with SessionLocal.begin() as session:
-        execution = session.scalar(
-            select(OnDemandExecution).where(
-                OnDemandExecution.active_key == active_key,
-                OnDemandExecution.status.in_((1, 2)),
-            )
-        )
-        if execution is not None:
-            _expire_execution(session, execution, current_time)
-        if execution is None or execution.status not in (1, 2):
-            execution = _create_execution(
-                session,
-                network_info,
-                active_key,
-                current_time,
-            )
-        query = ProbeQuery(
-            user_id=user_id,
-            execution_id=execution.id,
-            created_at=current_time,
-            expires_at=current_time + QUERY_RETENTION_SECONDS,
-        )
-        session.add(query)
-        session.flush()
-        return CreateProbeQueryData(
-            queryId=query.id,
-            executionId=execution.id,
-            status=EXECUTION_STATUS_NAMES[execution.status],
-            targetIp=execution.target_ip,
-        )
+    for attempt in range(2):
+        try:
+            with SessionLocal.begin() as session:
+                execution = session.scalar(
+                    select(OnDemandExecution).where(
+                        OnDemandExecution.active_key == active_key,
+                        OnDemandExecution.status.in_((1, 2)),
+                    )
+                )
+                if execution is not None:
+                    _expire_execution(session, execution, current_time)
+                if execution is None or execution.status not in (1, 2):
+                    execution = _create_execution(
+                        session,
+                        network_info,
+                        active_key,
+                        current_time,
+                    )
+                query = ProbeQuery(
+                    user_id=user_id,
+                    execution_id=execution.id,
+                    created_at=current_time,
+                    expires_at=current_time + QUERY_RETENTION_SECONDS,
+                )
+                session.add(query)
+                session.flush()
+                return CreateProbeQueryData(
+                    queryId=query.id,
+                    executionId=execution.id,
+                    status=EXECUTION_STATUS_NAMES[execution.status],
+                    targetIp=execution.target_ip,
+                )
+        except IntegrityError as exc:
+            if attempt > 0 or not _is_active_key_conflict(exc, active_key):
+                raise
+
+    raise RuntimeError("活动执行竞态恢复失败")
+
+
+def _is_active_key_conflict(exc: IntegrityError, active_key: str) -> bool:
+    """判断数据库错误是否由活动执行去重键冲突引起。
+
+    参数:
+        exc: SQLAlchemy 抛出的数据库完整性错误。
+        active_key: 当前目标对应的活动执行去重键。
+    返回:
+        错误为 MySQL active_key 重复键冲突时返回 True。
+    """
+    original_args = getattr(exc.orig, "args", ())
+    return (
+        bool(original_args)
+        and original_args[0] == 1062
+        and active_key in str(exc.orig)
+        and "active_key" in str(exc.orig)
+    )
 
 
 def _create_execution(

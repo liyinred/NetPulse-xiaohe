@@ -334,7 +334,7 @@
    * 格式化报告表格中的协议平均指标。
    * @param summary 协议聚合结果；没有样本时为 null。
    * @param selectedMetric 待展示的丢包或延迟指标。
-   * @returns 带单位的指标文案，没有样本时返回短横线。
+   * @returns 带单位的指标文案，延迟无有效样本时返回超时，没有协议结果时返回短横线。
    */
   function formatReportMetric(
     summary: Api.Detection.ProbeProtocolSummary | null,
@@ -342,7 +342,7 @@
   ): string {
     if (!summary) return '-'
     if (selectedMetric === 'loss') return `${summary.lossRate.toFixed(1)}%`
-    return summary.averageLatencyMs === null ? '-' : `${summary.averageLatencyMs.toFixed(1)} ms`
+    return summary.averageLatencyMs === null ? '超时' : `${summary.averageLatencyMs.toFixed(1)} ms`
   }
 
   /**

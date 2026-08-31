@@ -116,7 +116,9 @@
             >
               <template #default="{ row }">
                 <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
-                <div class="text-xs text-g-500">丢包 {{ formatLoss(row[protocol]) }}</div>
+                <div :class="['text-xs', getLossRateClass(row[protocol])]">
+                  丢包 {{ formatLoss(row[protocol]) }}
+                </div>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -151,7 +153,9 @@
             >
               <template #default="{ row }">
                 <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
-                <div class="text-xs text-g-500">丢包 {{ formatLoss(row[protocol]) }}</div>
+                <div :class="['text-xs', getLossRateClass(row[protocol])]">
+                  丢包 {{ formatLoss(row[protocol]) }}
+                </div>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -267,6 +271,7 @@
   const ispNames: Record<number, string> = { 1: '电信', 2: '移动', 3: '联通', 4: '其他运营商' }
   const protocols: ProtocolType[] = ['icmp', 'tcp', 'udp']
   const coverageFailureThresholds = { lossRate: 1000, latencyMs: 300 }
+  const lossRateWarningThreshold = 100
   const probeHistoryLimit = 10
   const probeHistoryStorageKey = StorageConfig.generateStorageKey('temporary-ip-history')
   const terminalStatuses: Api.Detection.OnDemandProbeStatus[] = [
@@ -487,6 +492,17 @@
    */
   function formatLoss(protocolResult: ProtocolResult): string {
     return `${(protocolResult.loss_rate / 10).toFixed(1)}%`
+  }
+
+  /**
+   * 根据丢包率返回表格数值的语义文字颜色。
+   * @param protocolResult 单个协议的按需探测结果。
+   * @returns 百分之百时返回危险色，高于百分之十时返回警告色，其余返回默认次要文字色。
+   */
+  function getLossRateClass(protocolResult: ProtocolResult): string {
+    if (protocolResult.loss_rate === coverageFailureThresholds.lossRate) return 'text-danger'
+    if (protocolResult.loss_rate > lossRateWarningThreshold) return 'text-warning'
+    return 'text-g-500'
   }
 
   /**
