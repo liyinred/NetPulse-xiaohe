@@ -18,11 +18,11 @@ from app.schemas.on_demand_probe import (
     OnDemandTaskData,
     ProbeQueryResultData,
 )
+from app.services.device import DEVICE_ONLINE_SECONDS
 from app.services.network import NetworkInfo, lookup_network
 
 
 EXECUTION_DEADLINE_SECONDS = 15
-NODE_ONLINE_SECONDS = 8
 QUERY_RETENTION_SECONDS = 24 * 60 * 60
 
 EXECUTION_STATUS_NAMES = {
@@ -148,7 +148,7 @@ def _create_execution(
             Device.device_id.is_not(None),
             Device.on_demand_status == 1,
             Device.last_seen_at.is_not(None),
-            Device.last_seen_at >= current_time - NODE_ONLINE_SECONDS,
+            Device.last_seen_at >= current_time - DEVICE_ONLINE_SECONDS,
             IPDict.ip_version == execution.ip_version,
             IPDict.public_status == 1,
         )
@@ -199,7 +199,7 @@ def _create_execution(
 
 
 def claim_on_demand_task(device_id: str) -> OnDemandTaskData | None:
-    """刷新设备心跳并原子领取一个待执行的按需任务。
+    """刷新设备心跳并领取携带目标 UDP 在线能力的按需任务。
 
     参数:
         device_id: Agent 本地设备标识。
@@ -244,6 +244,18 @@ def claim_on_demand_task(device_id: str) -> OnDemandTaskData | None:
             source_ip = session.get(IPDict, task.source_ip_id)
             if source_ip is None:
                 raise LookupError("按需探测任务源 IP 不存在")
+            target_device = session.scalar(
+                select(Device)
+                .join(IPDict, IPDict.device_related_id == Device.id)
+                .where(IPDict.ip == execution.target_ip)
+            )
+            udp_enabled = (
+                target_device is not None
+                and target_device.device_id is not None
+                and target_device.last_seen_at is not None
+                and target_device.last_seen_at
+                >= current_time - DEVICE_ONLINE_SECONDS
+            )
             task.status = 2
             task.started_at = current_time
             if execution.status == 1:
@@ -254,6 +266,7 @@ def claim_on_demand_task(device_id: str) -> OnDemandTaskData | None:
                 source_ip=ip_address(source_ip.ip),
                 target_ip=ip_address(execution.target_ip),
                 ip_version=execution.ip_version,
+                udp_enabled=udp_enabled,
             )
         return None
 

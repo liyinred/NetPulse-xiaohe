@@ -11,9 +11,10 @@ import (
 
 // ProbeTarget 保存中央服务下发的单个探测目标。
 type ProbeTarget struct {
-	PublicIP string `json:"public_ip"`
-	ISP      int    `json:"isp"`
-	Province int    `json:"province"`
+	PublicIP   string `json:"public_ip"`
+	ISP        int    `json:"isp"`
+	Province   int    `json:"province"`
+	UDPEnabled bool   `json:"udp_enabled"`
 }
 
 // ProbeTargets 保存按分类和 IP 版本拆分的持续探测目标。
@@ -38,12 +39,12 @@ type ProtocolResult struct {
 	AverageLatencyMS int `json:"average_latency_ms"`
 }
 
-// TargetResult 保存一个目标的三种协议分钟汇总结果。
+// TargetResult 保存一个目标的 ICMP、TCP 及可选 UDP 分钟汇总结果。
 type TargetResult struct {
-	TargetIP string         `json:"target_ip"`
-	ICMP     ProtocolResult `json:"icmp"`
-	TCP      ProtocolResult `json:"tcp"`
-	UDP      ProtocolResult `json:"udp"`
+	TargetIP string          `json:"target_ip"`
+	ICMP     ProtocolResult  `json:"icmp"`
+	TCP      ProtocolResult  `json:"tcp"`
+	UDP      *ProtocolResult `json:"udp"`
 }
 
 // ProbeResultRequest 保存一个分类、IP 版本和源地址的分钟结果。
@@ -84,6 +85,7 @@ type OnDemandTask struct {
 	SourceIP   string `json:"source_ip"`
 	TargetIP   string `json:"target_ip"`
 	IPVersion  int    `json:"ip_version"`
+	UDPEnabled bool   `json:"udp_enabled"`
 	ProbeCount int    `json:"probe_count"`
 	IntervalMS int    `json:"interval_ms"`
 	TimeoutMS  int    `json:"timeout_ms"`
@@ -93,11 +95,11 @@ type onDemandTaskResponse struct {
 	Data *OnDemandTask `json:"data"`
 }
 
-// OnDemandResults 保存按需任务的三协议汇总结果。
+// OnDemandResults 保存按需任务的 ICMP、TCP 及可选 UDP 汇总结果。
 type OnDemandResults struct {
-	ICMP ProtocolResult `json:"icmp"`
-	TCP  ProtocolResult `json:"tcp"`
-	UDP  ProtocolResult `json:"udp"`
+	ICMP ProtocolResult  `json:"icmp"`
+	TCP  ProtocolResult  `json:"tcp"`
+	UDP  *ProtocolResult `json:"udp"`
 }
 
 // OnDemandResultRequest 保存节点任务的完整按需探测上报。

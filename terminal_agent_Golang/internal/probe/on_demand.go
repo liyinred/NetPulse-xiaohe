@@ -99,6 +99,9 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 	var mutex sync.Mutex
 	var waitGroup sync.WaitGroup
 	for _, protocol := range protocolNames {
+		if protocol == "udp" && !task.UDPEnabled {
+			continue
+		}
 		protocol := protocol
 		waitGroup.Add(1)
 		go func() {
@@ -114,12 +117,17 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 		}()
 	}
 	waitGroup.Wait()
+	var udpResult *client.ProtocolResult
+	if task.UDPEnabled {
+		value := results["udp"]
+		udpResult = &value
+	}
 	request := client.OnDemandResultRequest{
 		TaskID: task.ID, DeviceID: runner.deviceID,
 		SourceIP: source.String(), TargetIP: target.String(),
 		StartedAt: startedAt.Unix(), FinishedAt: time.Now().Unix(),
 		Results: client.OnDemandResults{
-			ICMP: results["icmp"], TCP: results["tcp"], UDP: results["udp"],
+			ICMP: results["icmp"], TCP: results["tcp"], UDP: udpResult,
 		},
 	}
 	var submitErr error

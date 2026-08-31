@@ -115,10 +115,13 @@
               align="right"
             >
               <template #default="{ row }">
-                <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
-                <div :class="['text-xs', getLossRateClass(row[protocol])]">
-                  丢包 {{ formatLoss(row[protocol]) }}
-                </div>
+                <template v-if="row[protocol] !== null">
+                  <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
+                  <div :class="['text-xs', getLossRateClass(row[protocol])]">
+                    丢包 {{ formatLoss(row[protocol]) }}
+                  </div>
+                </template>
+                <span v-else>-</span>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -152,10 +155,13 @@
               align="right"
             >
               <template #default="{ row }">
-                <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
-                <div :class="['text-xs', getLossRateClass(row[protocol])]">
-                  丢包 {{ formatLoss(row[protocol]) }}
-                </div>
+                <template v-if="row[protocol] !== null">
+                  <div class="font-medium text-g-900">{{ formatLatency(row[protocol]) }}</div>
+                  <div :class="['text-xs', getLossRateClass(row[protocol])]">
+                    丢包 {{ formatLoss(row[protocol]) }}
+                  </div>
+                </template>
+                <span v-else>-</span>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -455,16 +461,19 @@
   }
 
   /**
-   * 判断节点三协议结果是否均未达到覆盖失败阈值。
+   * 判断节点已执行的协议结果是否均未达到覆盖失败阈值。
    * @param node 单个已完成节点结果。
-   * @returns 三协议均可达时返回 true。
+   * @returns 已执行协议均可达时返回 true，未执行的 UDP 不参与判断。
    */
   function isNodeCovered(node: NodeResult): boolean {
-    return protocols.every(
-      (protocol) =>
-        node[protocol].loss_rate < coverageFailureThresholds.lossRate &&
-        node[protocol].average_latency_ms < coverageFailureThresholds.latencyMs
-    )
+    return protocols.every((protocol) => {
+      const protocolResult = node[protocol]
+      return (
+        protocolResult === null ||
+        (protocolResult.loss_rate < coverageFailureThresholds.lossRate &&
+          protocolResult.average_latency_ms < coverageFailureThresholds.latencyMs)
+      )
+    })
   }
 
   /**
@@ -487,19 +496,21 @@
 
   /**
    * 将整数千分比丢包率转换为百分比。
-   * @param protocolResult 单协议探测结果。
-   * @returns 带百分号的一位小数结果。
+   * @param protocolResult 单协议探测结果；未执行时为 null。
+   * @returns 带百分号的一位小数结果；未执行时返回短横线。
    */
-  function formatLoss(protocolResult: ProtocolResult): string {
+  function formatLoss(protocolResult: ProtocolResult | null): string {
+    if (protocolResult === null) return '-'
     return `${(protocolResult.loss_rate / 10).toFixed(1)}%`
   }
 
   /**
    * 根据丢包率返回表格数值的语义文字颜色。
-   * @param protocolResult 单个协议的按需探测结果。
+   * @param protocolResult 单个协议的按需探测结果；未执行时为 null。
    * @returns 百分之百时返回危险色，高于百分之十时返回警告色，其余返回默认次要文字色。
    */
-  function getLossRateClass(protocolResult: ProtocolResult): string {
+  function getLossRateClass(protocolResult: ProtocolResult | null): string {
+    if (protocolResult === null) return 'text-g-500'
     if (protocolResult.loss_rate === coverageFailureThresholds.lossRate) return 'text-danger'
     if (protocolResult.loss_rate > lossRateWarningThreshold) return 'text-warning'
     return 'text-g-500'
@@ -507,10 +518,11 @@
 
   /**
    * 格式化单协议平均延迟。
-   * @param protocolResult 单协议探测结果。
-   * @returns 带 ms 单位的延迟结果。
+   * @param protocolResult 单协议探测结果；未执行时为 null。
+   * @returns 带 ms 单位的延迟结果；未执行时返回短横线。
    */
-  function formatLatency(protocolResult: ProtocolResult): string {
+  function formatLatency(protocolResult: ProtocolResult | null): string {
+    if (protocolResult === null) return '-'
     return `${protocolResult.average_latency_ms} ms`
   }
 

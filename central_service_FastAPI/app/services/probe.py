@@ -38,7 +38,7 @@ from app.schemas.probe import (
     ProtocolType,
 )
 from app.schemas.user import UserLevel
-from app.services.device import _upsert_ip_record
+from app.services.device import DEVICE_ONLINE_SECONDS, _upsert_ip_record
 from app.services.network import (
     ISP_NAMES,
     IPLookupError,
@@ -499,7 +499,7 @@ def _load_targets(
     version: int,
     mode: str,
 ) -> list[ProbeTarget]:
-    """查询同版本且符合分类条件的公开目标。
+    """查询同版本公开目标并标记其 UDP Agent 在线能力。
 
     参数:
         session: 当前数据库会话。
@@ -508,7 +508,7 @@ def _load_targets(
         version: 目标 IP 版本。
         mode: cross_isp 或 cross_province。
     返回:
-        按 IP 记录主键排序的目标列表。
+        按 IP 记录主键排序且携带 UDP 可用状态的目标列表。
     """
     rows = session.scalars(
         select(IPDict)
@@ -519,8 +519,23 @@ def _load_targets(
         )
         .order_by(IPDict.id)
     ).all()
+    current_time = int(time())
+    online_device_ids = set(
+        session.scalars(
+            select(Device.id).where(
+                Device.device_id.is_not(None),
+                Device.last_seen_at.is_not(None),
+                Device.last_seen_at >= current_time - DEVICE_ONLINE_SECONDS,
+            )
+        ).all()
+    )
     return [
-        ProbeTarget(public_ip=ip_address(row.ip), isp=row.isp, province=row.province)
+        ProbeTarget(
+            public_ip=ip_address(row.ip),
+            isp=row.isp,
+            province=row.province,
+            udp_enabled=row.device_related_id in online_device_ids,
+        )
         for row in rows
         if row.device_related_id != device.id
         and row.isp is not None
@@ -714,7 +729,7 @@ def _validate_probe_target(
 
 
 def save_probe_result(request: ProbeResultRequest) -> None:
-    """校验并幂等保存一个分类及其上报设备的分钟探测结果。
+    """校验并幂等保存一个分类的 ICMP、TCP 及可选 UDP 分钟结果。
 
     参数:
         request: Agent 上报的完整分钟结果。
@@ -774,14 +789,16 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                 )
                 for row in existing_rows
             }
-            incoming_values = {
-                target_id: (
+            incoming_values = {}
+            for target_id, target_result in target_results.items():
+                protocol_result = getattr(target_result, field_name)
+                if protocol_result is None:
+                    continue
+                incoming_values[target_id] = (
                     device.id,
-                    getattr(target_result, field_name).loss_rate,
-                    getattr(target_result, field_name).average_latency_ms,
+                    protocol_result.loss_rate,
+                    protocol_result.average_latency_ms,
                 )
-                for target_id, target_result in target_results.items()
-            }
             protocol_states.append(
                 (state_model, incoming_values, existing_values)
             )

@@ -30,12 +30,13 @@ var ispNamesByCode = map[int]string{
 	4: "其他",
 }
 
-// Target 保存规范化目标地址、网络属性及其所属分类集合。
+// Target 保存规范化目标地址、网络属性、UDP 能力及其所属分类集合。
 type Target struct {
-	Address  netip.Addr
-	ISP      int
-	Province int
-	Modes    []string
+	Address    netip.Addr
+	ISP        int
+	Province   int
+	UDPEnabled bool
+	Modes      []string
 }
 
 // NodeName 返回目标的省份与运营商名称。
@@ -169,10 +170,11 @@ func mergeVersionTargets(
 		}
 		metadata := targetMetadata[address]
 		targets = append(targets, Target{
-			Address:  address,
-			ISP:      metadata.ISP,
-			Province: metadata.Province,
-			Modes:    modes,
+			Address:    address,
+			ISP:        metadata.ISP,
+			Province:   metadata.Province,
+			UDPEnabled: metadata.UDPEnabled,
+			Modes:      modes,
 		})
 	}
 	return targets, nil

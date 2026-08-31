@@ -47,7 +47,7 @@ class OnDemandNodeResult(BaseModel):
     province: int | None
     icmp: ProtocolOnDemandResult
     tcp: ProtocolOnDemandResult
-    udp: ProtocolOnDemandResult
+    udp: ProtocolOnDemandResult | None = None
 
 
 class OnDemandResultGroups(BaseModel):
@@ -90,6 +90,7 @@ class OnDemandTaskData(BaseModel):
     source_ip: IPv4Address | IPv6Address
     target_ip: IPv4Address | IPv6Address
     ip_version: Literal[4, 6]
+    udp_enabled: bool = False
     probe_count: Literal[10] = 10
     interval_ms: Literal[100] = 100
     timeout_ms: Literal[300] = 300
@@ -102,11 +103,11 @@ class OnDemandTaskResponse(BaseModel):
 
 
 class OnDemandProtocolResults(BaseModel):
-    """保存节点按需探测的三协议完整结果。"""
+    """保存节点按需探测的 ICMP、TCP 及可选 UDP 结果。"""
 
     icmp: ProtocolOnDemandResult
     tcp: ProtocolOnDemandResult
-    udp: ProtocolOnDemandResult
+    udp: ProtocolOnDemandResult | None = None
 
 
 class OnDemandResultRequest(BaseModel):

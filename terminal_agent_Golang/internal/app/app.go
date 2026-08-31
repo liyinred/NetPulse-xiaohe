@@ -107,6 +107,12 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 
 	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
 	printBindingInfo(output, bindingInfo)
+	udpResponder, err := probe.StartUDPResponder(ctx, sourceIPv6 != nil)
+	if err != nil {
+		return err
+	}
+	defer udpResponder.Close()
+	fmt.Fprintln(output, "UDP 探测回复已监听 33434 端口。")
 	onDemandRunner := probe.NewOnDemandRunner(
 		backend,
 		deviceID,

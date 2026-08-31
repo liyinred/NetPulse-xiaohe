@@ -288,13 +288,13 @@ func probeTCP(
 	return 0, err
 }
 
-// probeUDP 使用系统路由选择的本地地址发送 UDP datagram 并等待回复或端口不可达。
+// probeUDP 使用系统路由选择的本地地址发送 UDP datagram 并等待 Agent 回复。
 //
 // 参数:
 //   - ctx: 控制单次读写超时或取消的 Context。
 //   - target: 同版本目标公网地址。
 //
-// 返回值: 收到 UDP 回复或 connection refused 的 RTT；其他错误表示丢包。
+// 返回值: 收到载荷匹配的 UDP 回复时返回 RTT；其他错误表示丢包。
 func probeUDP(
 	ctx context.Context,
 	target netip.Addr,
@@ -317,15 +317,16 @@ func probeUDP(
 		_ = connection.SetDeadline(deadline)
 	}
 	startedAt := time.Now()
-	if _, err := connection.Write([]byte("netpulse")); err != nil {
+	if _, err := connection.Write([]byte(udpProbePayload)); err != nil {
 		return 0, err
 	}
-	buffer := make([]byte, 64)
-	if _, err := connection.Read(buffer); err != nil {
-		if errors.Is(err, syscall.ECONNREFUSED) {
-			return time.Since(startedAt), nil
-		}
+	buffer := make([]byte, len(udpProbePayload)+1)
+	readCount, err := connection.Read(buffer)
+	if err != nil {
 		return 0, err
+	}
+	if string(buffer[:readCount]) != udpProbePayload {
+		return 0, errors.New("UDP 探测回复载荷不匹配")
 	}
 	return time.Since(startedAt), nil
 }

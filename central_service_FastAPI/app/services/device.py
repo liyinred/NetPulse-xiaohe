@@ -15,6 +15,9 @@ from app.services.network import NetworkInfo, lookup_network
 from app.services.wechat import QRCODE_EXPIRE_SECONDS, get_scene_created_at
 
 
+DEVICE_ONLINE_SECONDS = 8
+
+
 @dataclass(frozen=True)
 class DeviceBindingResult:
     """保存设备绑定结果及中央服务识别的 IPv4 网络属性。"""

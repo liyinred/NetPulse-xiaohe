@@ -17,6 +17,7 @@ class ProbeTarget(BaseModel):
     public_ip: IPv4Address | IPv6Address
     isp: int
     province: int
+    udp_enabled: bool = False
 
 
 class ProbeTargetsRequest(BaseModel):
@@ -46,12 +47,12 @@ class ProtocolProbeResult(BaseModel):
 
 
 class TargetProbeResult(BaseModel):
-    """保存一个目标的 ICMP、TCP 和 UDP 汇总结果。"""
+    """保存一个目标的 ICMP、TCP 及可选 UDP 汇总结果。"""
 
     target_ip: IPv4Address | IPv6Address
     icmp: ProtocolProbeResult
     tcp: ProtocolProbeResult
-    udp: ProtocolProbeResult
+    udp: ProtocolProbeResult | None = None
 
 
 class ProbeResultRequest(BaseModel):

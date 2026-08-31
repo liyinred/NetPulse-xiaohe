@@ -310,6 +310,10 @@ func (engine *Engine) printWindowResults(
 				{name: "UDP", stats: stats.udp},
 			}
 			for _, protocol := range protocols {
+				if protocol.name == "UDP" && !stats.target.UDPEnabled {
+					fmt.Fprintln(engine.output, "    UDP: -")
+					continue
+				}
 				summary := summarize(protocol.stats)
 				if protocol.stats.succeeded == 0 {
 					fmt.Fprintf(
@@ -341,23 +345,27 @@ func (engine *Engine) printWindowResults(
 // 参数:
 //   - results: 当前自然分钟的双栈目标统计。
 //
-// 返回值: 全部协议均完成 100 次时返回 nil，否则返回错误。
+// 返回值: ICMP、TCP 及启用的 UDP 均完成 100 次时返回 nil，否则返回错误。
 func validateWindowResults(results []sourceWindowResult) error {
 	for _, result := range results {
 		for _, stats := range result.stats {
-			attempts := []int{
-				stats.icmp.attempted,
-				stats.tcp.attempted,
-				stats.udp.attempted,
+			attempts := []struct {
+				name      string
+				attempted int
+				enabled   bool
+			}{
+				{name: "icmp", attempted: stats.icmp.attempted, enabled: true},
+				{name: "tcp", attempted: stats.tcp.attempted, enabled: true},
+				{name: "udp", attempted: stats.udp.attempted, enabled: stats.target.UDPEnabled},
 			}
-			for index, attempted := range attempts {
-				if attempted != probeCount {
+			for _, attempt := range attempts {
+				if attempt.enabled && attempt.attempted != probeCount {
 					return fmt.Errorf(
 						"IPv%d 目标 %s 的 %s 探测仅完成 %d/%d 次",
 						result.version,
 						stats.target.Address,
-						protocolNames[index],
-						attempted,
+						attempt.name,
+						attempt.attempted,
 						probeCount,
 					)
 				}
@@ -374,7 +382,7 @@ func validateWindowResults(results []sourceWindowResult) error {
 //   - windowStart: 自然分钟窗口起点。
 //   - source: 当前 IP 版本的源地址、目标和 ICMP Driver。
 //
-// 返回值: 当前源地址下所有目标的三协议统计。
+// 返回值: 当前源地址下所有目标的 ICMP、TCP 及已启用 UDP 统计。
 func (engine *Engine) runSourceWindow(
 	ctx context.Context,
 	windowStart time.Time,
@@ -385,6 +393,9 @@ func (engine *Engine) runSourceWindow(
 	for targetIndex, target := range source.targets {
 		stats[targetIndex].target = target
 		for _, protocol := range protocolNames {
+			if protocol == "udp" && !target.UDPEnabled {
+				continue
+			}
 			targetIndex, target, protocol := targetIndex, target, protocol
 			waitGroup.Add(1)
 			go func() {
@@ -505,6 +516,9 @@ func buildWindowAlerts(
 				{name: "udp", stats: targetStats.udp},
 			}
 			for _, protocol := range protocols {
+				if protocol.name == "udp" && !targetStats.target.UDPEnabled {
+					continue
+				}
 				if protocol.stats.attempted == protocol.stats.succeeded {
 					continue
 				}
@@ -576,12 +590,16 @@ func (engine *Engine) submitWindowResults(
 				if !containsMode(stats.target.Modes, mode) {
 					continue
 				}
-				targets = append(targets, client.TargetResult{
+				targetResult := client.TargetResult{
 					TargetIP: stats.target.Address.String(),
 					ICMP:     summarize(stats.icmp),
 					TCP:      summarize(stats.tcp),
-					UDP:      summarize(stats.udp),
-				})
+				}
+				if stats.target.UDPEnabled {
+					udpResult := summarize(stats.udp)
+					targetResult.UDP = &udpResult
+				}
+				targets = append(targets, targetResult)
 			}
 			if len(targets) == 0 {
 				continue

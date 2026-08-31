@@ -219,7 +219,7 @@ declare namespace Api {
       province: number | null
       icmp: OnDemandProtocolResult
       tcp: OnDemandProtocolResult
-      udp: OnDemandProtocolResult
+      udp: OnDemandProtocolResult | null
     }
 
     /** 临时 IP 探测进度和分类结果 */
