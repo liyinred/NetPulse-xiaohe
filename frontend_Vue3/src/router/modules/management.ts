@@ -23,5 +23,15 @@ export const managementRoutes: AppRouteRecord[] = [
       icon: 'ri:user-settings-line',
       roles: ['R_ADMIN']
     }
+  },
+  {
+    path: '/system-logs',
+    name: 'SystemLogs',
+    component: '/system/system-logs',
+    meta: {
+      title: '系统日志',
+      icon: 'ri:file-list-3-line',
+      roles: ['R_ADMIN']
+    }
   }
 ]

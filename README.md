@@ -70,3 +70,11 @@ chmod +x netpulse-agent-linux-amd64
 ```
 
 生成的 Agent 是单个可执行文件，不需要额外复制 Go 依赖。程序首次运行时会在可执行文件所在目录创建外部配置文件 `config.yaml`，因此该目录需要具备写权限。
+
+## Git 提交推送
+
+将本地 `main` 分支的提交以 `--amend` 方式补充到当前提交，并强制推送到远端 `origin` 和 `github` 的 `wenhao666` 分支：
+
+```bash
+git add . && git commit --amend --no-edit && git push --force-with-lease origin main:wenhao666 && git push --force-with-lease github main:wenhao666
+```

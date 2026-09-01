@@ -142,7 +142,7 @@
         <h2 class="text-base font-medium text-g-900">
           昨日探测<span v-if="reportData">（{{ reportData.previousDayDate }}）</span>
         </h2>
-        <span class="text-sm text-g-500">展示格式：全天 / 晚高峰（20:00-22:00）</span>
+        <ElTag type="info" effect="light">展示格式：全天 / 晚高峰（20:00-22:00）</ElTag>
       </div>
       <ElTable :data="previousDayReportRows" border empty-text="昨日暂无探测结果">
         <ElTableColumn prop="provinceName" label="省份" />

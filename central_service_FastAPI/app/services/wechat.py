@@ -12,6 +12,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.config import WECHAT_APP_ID, WECHAT_APP_SECRET
+from app.services.http_observability import record_outbound_response_error
 
 
 WECHAT_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
@@ -89,6 +90,11 @@ def parse_wechat_response(
     返回:
         微信 API 返回的 JSON 对象。
     """
+    record_outbound_response_error(
+        response.status_code,
+        response.request.method,
+        response.request.url.path,
+    )
     try:
         response.raise_for_status()
         response_data = response.json()

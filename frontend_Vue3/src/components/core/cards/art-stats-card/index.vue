@@ -8,16 +8,18 @@
       <ArtSvgIcon :icon="icon"></ArtSvgIcon>
     </div>
     <div class="flex-1">
-      <p class="m-0 text-lg font-medium" :style="{ color: textColor }" v-if="title">
+      <p class="m-0" :class="titleClass" :style="{ color: textColor }" v-if="title">
         {{ title }}
       </p>
       <ArtCountTo
-        class="m-0 text-2xl font-medium"
+        class="m-0"
+        :class="countClass"
         v-if="count !== undefined"
         :target="count"
         :duration="2000"
         :decimals="decimals"
         :separator="separator"
+        :suffix="suffix"
       />
       <p
         class="mt-1 text-sm text-g-500 opacity-90"
@@ -44,14 +46,20 @@
     iconStyle?: string
     /** 标题 */
     title?: string
+    /** 标题文字样式 */
+    titleClass?: string
     /** 数值 */
     count?: number
+    /** 数值文字样式 */
+    countClass?: string
     /** 小数位 */
     decimals?: number
     /** 分隔符 */
     separator?: string
+    /** 数值后缀 */
+    suffix?: string
     /** 描述 */
-    description: string
+    description?: string
     /** 文本颜色 */
     textColor?: string
     /** 是否显示箭头 */
@@ -61,7 +69,10 @@
   withDefaults(defineProps<StatsCardProps>(), {
     iconSize: 30,
     iconBgRadius: 50,
+    titleClass: 'text-lg font-medium',
+    countClass: 'text-2xl font-medium',
     decimals: 0,
-    separator: ','
+    separator: ',',
+    suffix: ''
   })
 </script>

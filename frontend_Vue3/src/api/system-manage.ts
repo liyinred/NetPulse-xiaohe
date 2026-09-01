@@ -66,6 +66,28 @@ export function fetchUpdateUser(userId: number, params: Api.SystemManage.UserUpd
   })
 }
 
+/**
+ * 获取 HTTP 5xx 错误日志分页列表。
+ * @param params 日志排序和分页参数。
+ * @returns HTTP 5xx 错误日志分页列表。
+ */
+export function fetchGetHttpErrorLogList(params: Api.SystemManage.HttpErrorLogSearchParams) {
+  return request.get<Api.SystemManage.HttpErrorLogList>({
+    url: '/api/system-logs/list',
+    params
+  })
+}
+
+/**
+ * 获取当前 FastAPI 进程的 HTTP Prometheus 指标快照。
+ * @returns 运行时长、请求量、5xx 数量和请求耗时指标。
+ */
+export function fetchGetHttpMetrics() {
+  return request.get<Api.SystemManage.HttpMetrics>({
+    url: '/api/system-logs/metrics'
+  })
+}
+
 // 获取角色列表
 export function fetchGetRoleList(params: Api.SystemManage.RoleSearchParams) {
   return request.get<Api.SystemManage.RoleList>({

@@ -10,7 +10,8 @@ export const detectionRoutes: AppRouteRecord[] = [
     component: '/detection/temporary-ip',
     meta: {
       title: '临时IP探测',
-      icon: 'ri:focus-3-line'
+      icon: 'ri:crosshair-2-line',
+      keepAlive: true
     }
   },
   {
@@ -19,7 +20,7 @@ export const detectionRoutes: AppRouteRecord[] = [
     component: '/detection/blank',
     meta: {
       title: '异网探测',
-      icon: 'ri:radar-line'
+      icon: 'mingcute:route-line'
     }
   },
   {

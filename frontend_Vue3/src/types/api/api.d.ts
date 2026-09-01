@@ -310,6 +310,34 @@ declare namespace Api {
       alertType: UserAlertType
     }
 
+    /** HTTP 5xx 错误日志列表 */
+    type HttpErrorLogList = Api.Common.PaginatedResponse<HttpErrorLogItem>
+
+    /** HTTP 5xx 错误日志列表项 */
+    interface HttpErrorLogItem {
+      id: number
+      direction: 'inbound' | 'outbound'
+      method: string
+      path: string
+      statusCode: number
+      errorType: string
+      errorMessage: string
+      occurredTime: string
+    }
+
+    /** HTTP 错误日志分页与排序参数 */
+    type HttpErrorLogSearchParams = Partial<Api.Common.CommonSearchParams>
+
+    /** 当前 FastAPI 进程的 HTTP 指标 */
+    interface HttpMetrics {
+      processUptimeSeconds: number
+      httpRequestTotal: number
+      http5xxTotal: number
+      averageRequestDurationMs: number
+      p95RequestDurationMs: number
+      p99RequestDurationMs: number
+    }
+
     /** 角色列表 */
     type RoleList = Api.Common.PaginatedResponse<RoleListItem>
 

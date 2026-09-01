@@ -10,6 +10,15 @@ from sqlalchemy import URL
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
+HTTP_ERROR_LOG_DATABASE_PATH = Path(
+    os.getenv(
+        "HTTP_ERROR_LOG_DATABASE_PATH",
+        str(PROJECT_ROOT / "runtime" / "http_error_logs.db"),
+    )
+)
+if not HTTP_ERROR_LOG_DATABASE_PATH.is_absolute():
+    HTTP_ERROR_LOG_DATABASE_PATH = PROJECT_ROOT / HTTP_ERROR_LOG_DATABASE_PATH
+
 
 def get_required_setting(name: str) -> str:
     """读取必需的环境变量。

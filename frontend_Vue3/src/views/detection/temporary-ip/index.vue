@@ -91,7 +91,7 @@
           <template #header>
             <div class="flex items-center justify-between gap-3">
               <div class="flex items-center gap-2">
-                <ArtSvgIcon icon="ri:exchange-2-line" class="text-lg text-theme" />
+                <ArtSvgIcon icon="mingcute:route-line" class="text-lg text-theme" />
                 <span class="font-medium text-g-900">异网节点</span>
               </div>
               <ElTag type="info" effect="plain">
@@ -171,7 +171,7 @@
       <ElCard v-if="isTerminalResult" shadow="never">
         <template #header>
           <div class="flex items-center gap-2">
-            <ArtSvgIcon icon="ri:road-map-line" class="text-lg text-theme" />
+            <ArtSvgIcon icon="ri:exchange-2-line" class="text-lg text-theme" />
             <span class="font-medium text-g-900">探测结果概览</span>
           </div>
         </template>

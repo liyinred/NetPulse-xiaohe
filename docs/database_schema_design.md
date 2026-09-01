@@ -1,6 +1,6 @@
 ## 数据表结构设计
 
-数据表中的内部主键和外键统一使用 `INT`，Unix 时间戳统一使用 `INT64`；状态、协议和模式等有限选项使用整数编码，并通过 `CHECK` 约束合法取值。`VARCHAR` 和 `TEXT` 仅用于 `openid`、UUID、场景值、名称和消息正文等不可数值化的标识或文本。临时 IP 查询的三协议结果作为一次不可拆分的节点响应，使用受固定 schema 校验的 `JSON` 字段保存。
+数据表中的内部主键和外键统一使用 `INT`，Unix 时间戳统一使用 `INT64`；状态、协议和模式等有限选项使用整数编码，并通过 `CHECK` 约束合法取值。`VARCHAR` 和 `TEXT` 仅用于不可数值化的标识或文本。临时 IP 节点结果使用固定 schema 的 `JSON` 保存，其中 ICMP、TCP 必填，UDP 未启用时允许为 `null`。
 
 ### 7.1 `users`
 
@@ -93,7 +93,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 
 ### 7.6 `probe_state_udp`
 
-保存每个自然分钟窗口的 UDP 探测状态。
+保存每个自然分钟窗口中已启用的 UDP 探测状态；目标 Agent 不在线时不生成对应记录。
 
 | 字段             | 数据类型  | 键                                    | 说明                                      |
 | ---------------- | --------- | ------------------------------------- | ----------------------------------------- |
@@ -105,7 +105,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | UDP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | UDP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
 
-三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务根据上报的 `device_id` 查询已绑定设备，将其内部主键写入每条状态记录的 `device_related_id`；再根据上报的 `source_ip` 解析源 `ip_dict.id`，并遍历 `targets`，根据每个全局唯一的 `target_ip` 解析目标 `ip_dict.id`。源 IP 必须属于该设备，目标 IP 不要求关联设备但不得属于当前设备，且两者的 `ip_version` 必须相同并等于上报值，任一目标的归属、版本或分类不匹配时拒绝整份上报。`ip_version` 由 `source_ip_id` 和 `target_ip_id` 关联的 `ip_dict.ip_version` 保存，不在状态表中重复存储；`probe_mode` 转换为数值编码，API 中的整数千分比 `loss_rate` 和 0 至 300 的整数毫秒 `average_latency_ms` 分别直接写入 `loss_rate` 与 `rtt_ms`。幂等重试除比较丢包率和 RTT 外，也比较已有记录的 `device_related_id`。
+三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务校验设备、源目标 IP、版本和分类后，将非空协议结果写入对应状态表；ICMP、TCP 固定写入，UDP 为 `null` 时跳过 `probe_state_udp`。其余字段映射和幂等比较规则相同。
 
 ### 7.7 `alert_events`
 
@@ -169,8 +169,8 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `source_ip_id`    | `INT`   | `FK → ip_dict.id`              | 选定的节点源 IP                                                |
 | `probe_modes`     | `INT`   | `NOT NULL`, `CHECK`           | 分类集合：`1`=异网、`2`=跨省、`3`=两者                   |
 | `status`          | `INT`   | `NOT NULL`, `CHECK`           | `1`=待领取、`2`=执行中、`3`=完成、`4`=超时、`5`=失败 |
-| `result_data`     | `JSON`  | -                                 | 三种协议的整数千分比丢包率和整数毫秒平均延迟                   |
+| `result_data`     | `JSON`  | -                                 | ICMP、TCP 及可选 UDP 的丢包率和平均延迟                         |
 | `started_at`      | `INT64` | -                                 | 节点开始执行时间                                               |
 | `finished_at`     | `INT64` | -                                 | 节点任务完成时间                                               |
 
-`execution_id + probe_device_id` 必须唯一，保证同一设备只执行一次。节点源 IP、ISP 和省份通过 `source_ip_id` 关联 `ip_dict` 获取，不重复保存快照；被节点任务引用的 `ip_dict` 记录不得硬删除，也不得原地修改 `ip`。任务完成时在同一事务内写入完整 `result_data` 并将状态改为完成；失败或超时时 `result_data` 为空。`result_data` 必须包含 `icmp`、`tcp`、`udp` 三项，每项的 `loss_rate` 为 0 至 1000 的整数千分比，`average_latency_ms` 为整数。
+`execution_id + probe_device_id` 必须唯一。任务完成时在同一事务内写入 `result_data` 并将状态改为完成；失败或超时时为空。`result_data` 中 `icmp`、`tcp` 必填，`udp` 在目标 Agent 不在线时为 `null`；非空协议结果包含整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms`。

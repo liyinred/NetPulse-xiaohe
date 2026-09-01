@@ -15,6 +15,8 @@ import app.models  # noqa: F401
 from app.api.router import api_router
 from app.db.base import Base
 from app.db.session import engine
+from app.middleware.http_observability import HttpObservabilityMiddleware
+from app.services.http_observability import initialize_http_error_database
 
 
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +69,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         控制应用生命周期的异步迭代器。
     """
     Base.metadata.create_all(bind=engine)
+    initialize_http_error_database()
     yield
 
 
@@ -79,6 +82,7 @@ def create_app() -> FastAPI:
         已注册业务路由并挂载前端构建产物的 FastAPI 应用。
     """
     application = FastAPI(title="central_service_FastAPI", lifespan=lifespan)
+    application.add_middleware(HttpObservabilityMiddleware)
     application.include_router(api_router)
     application.mount(
         "/",

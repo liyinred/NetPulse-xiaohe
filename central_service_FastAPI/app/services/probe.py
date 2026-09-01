@@ -8,6 +8,7 @@ from time import time
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -571,6 +572,8 @@ async def discover_probe_targets(
     current_time = int(time())
     with SessionLocal.begin() as session:
         device = _get_device(session, request.device_id)
+        device.last_seen_at = current_time
+        device.updated_time = current_time
         _upsert_ip_record(
             session,
             device.id,
@@ -587,8 +590,6 @@ async def discover_probe_targets(
                 ipv6_network_info,
             )
         session.flush()
-        device.last_seen_at = current_time
-        device.updated_time = current_time
         source_ipv4 = session.scalar(
             select(IPDict).where(IPDict.ip == str(request.source_ipv4))
         )
@@ -728,8 +729,8 @@ def _validate_probe_target(
     return target
 
 
-def save_probe_result(request: ProbeResultRequest) -> None:
-    """校验并幂等保存一个分类的 ICMP、TCP 及可选 UDP 分钟结果。
+def _save_probe_result_once(request: ProbeResultRequest) -> None:
+    """在单个事务中校验并保存一个分类的分钟探测结果。
 
     参数:
         request: Agent 上报的完整分钟结果。
@@ -828,6 +829,37 @@ def save_probe_result(request: ProbeResultRequest) -> None:
                         rtt_ms=rtt_ms,
                     )
                 )
+
+
+def _is_duplicate_key_error(exc: IntegrityError) -> bool:
+    """判断数据库完整性错误是否为 MySQL 重复键冲突。
+
+    参数:
+        exc: SQLAlchemy 抛出的数据库完整性错误。
+    返回:
+        底层 MySQL 错误码为 1062 时返回 True。
+    """
+    original_args = getattr(exc.orig, "args", ())
+    return bool(original_args) and original_args[0] == 1062
+
+
+def save_probe_result(request: ProbeResultRequest) -> None:
+    """幂等保存分钟探测结果，并对并发重复写入重试一次。
+
+    参数:
+        request: Agent 上报的完整分钟结果。
+    返回:
+        无返回值；重复且内容一致的请求视为成功。
+    """
+    for attempt in range(2):
+        try:
+            _save_probe_result_once(request)
+            return
+        except IntegrityError as exc:
+            if attempt > 0 or not _is_duplicate_key_error(exc):
+                raise
+
+    raise RuntimeError("探测结果写入竞态恢复失败")
 
 
 def list_user_probe_nodes(

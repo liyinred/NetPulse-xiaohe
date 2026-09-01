@@ -4,25 +4,25 @@
 
 | 项目     | 内容                           |
 | -------- | ------------------------------ |
-| 文档版本 | v0.0.10                        |
-| 更新日期 | 2026-08-05                     |
+| 文档版本 | v0.0.11                        |
+| 更新日期 | 2026-08-31                     |
 | 技术栈   | Golang Agent、FastAPI 中央服务 |
 | 运行平台 | Linux                          |
 
-本项目用于在用户自有 Linux 服务器上持续探测异网和跨省网络质量，并支持用户对临时公网 IP 发起类似 ITDog 的按需查询。设备绑定成功后，Agent 无需用户选择探测类型，也无需用户手动输入持续监控目标 IP；Agent 自动向中央服务查询当前设备对应的异网与跨省目标 IP 列表，在相同 IP 版本内对两个分类列表按 IP 去重合并，并在单个 Go 进程内对合并后的目标执行 ICMP、TCP 和 UDP 探测。IPv4 源地址只探测 IPv4 目标，IPv6 源地址只探测 IPv6 目标；同一 IP 同时属于异网和跨省时只执行一次实际网络探测。每个整分钟窗口结束时，Agent 按 `device_id + probe_mode + ip_version + source_ip` 分组上报三种协议的探测结果，各目标的 `target_ip` 和汇总结果保存在 `targets` 数组中；同一窗口内发生的丢包按目标、协议和分类聚合为告警批次上报。用户在微信服务号中选择接收异网告警、跨省告警或同时接收两类告警，中央服务按用户的告警类型设置发送通知。
+本项目用于在用户自有 Linux 服务器上持续探测异网和跨省网络质量，并支持用户对临时公网 IP 发起类似 ITDog 的按需查询。设备绑定成功后，Agent 自动查询异网与跨省目标，在相同 IP 版本内按 IP 去重，并执行 ICMP、TCP 及按在线能力启用的 UDP 探测。Agent 登录后监听 UDP 33434 并回复匹配的探测报文；中央服务仅在源、目标 IP 关联的 Agent 都在线时下发 UDP 能力。IPv4 只探测 IPv4，IPv6 只探测 IPv6；同一 IP 同时属于异网和跨省时只执行一次实际探测。每个整分钟窗口结束时，Agent 分组上报结果和丢包告警，未启用 UDP 的目标不产生 UDP 结果或告警。
 
-临时 IP 查询不要求目标安装 Agent，也不将目标伪装成设备。中央服务识别临时 IP 的 ISP、省份和 IP 版本后，默认选择与目标异网或跨省、当前在线且允许作为公开探测节点的同版本 Agent。每个选中节点对指定临时 IP 的 ICMP、TCP 和 UDP 分别发送 10 次探测，10 次发送安排在 1 秒发送窗口内，完成后向中央服务返回汇总结果。两个用户在同一活动执行期间以相同参数查询同一 IP 时，各自保留独立查询记录，但可共享同一次实际节点探测。
+临时 IP 查询不要求目标安装 Agent，也不将目标伪装成设备。每个在线探测节点固定执行 ICMP 和 TCP；仅当临时目标 IP 关联的 Agent 同时在线时执行 UDP。未执行的 UDP 结果为 `null`，前端表格显示 `-`。两个用户在同一活动执行期间查询相同 IP 时可共享同一次实际节点探测。
 
 ### 1.1 项目目标
 
 1. 通过微信服务号扫码完成用户与设备绑定。
 2. 登录成功后由 Agent 自动查询当前设备按 IPv4/IPv6 分组的异网与跨省持续监控目标 IP 列表，不要求用户选择探测类型或输入持续监控目标 IP。
-3. 对相同 IP 版本的异网和跨省列表按 IP 去重合并，并对合并后的每个唯一目标 IP 固定执行 ICMP、TCP 和 UDP 三种探测。
+3. 对相同 IP 版本的异网和跨省列表按 IP 去重合并，固定执行 ICMP、TCP，并仅对在线 Agent 目标执行 UDP。
 4. 每个整分钟窗口结束时，以 JSON 格式上报当前窗口的 Unix 时间戳、丢包率和平均延迟。
 5. 每个自然分钟结束时聚合当前窗口的丢包告警，并按用户在微信服务号中设置的告警类型发送通知。
 6. 以单个 Linux 二进制和 `systemd` 服务方式持久部署，探测过程不创建子进程。
 7. 由中央服务一次查询并按探测分类和 IP 版本返回 ISP 不同或省份不同且处于公开状态的设备关联公网 IP。
-8. 支持临时公网 IP 按需查询，自动选择当前异网与跨省在线探测节点，每个节点在 1 秒发送窗口内分别执行 10 次 ICMP、TCP 和 UDP 探测并返回结果。
+8. 支持临时公网 IP 按需查询，由在线节点执行 ICMP、TCP，并在目标 Agent 在线时执行 UDP。
 9. 相同参数的并发临时 IP 查询复用实际探测任务，同时保持用户查询记录、访问权限和结果展示相互隔离。
 
 ## 2. 关键设计决策
@@ -45,7 +45,7 @@
 
 ### 2.3 结果与告警上报
 
-系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束后，为每个结果或告警 HTTP 请求独立生成 `[0, 10s)` 的随机延迟，以窗口结束时间为基准异步发起上报，避免大量 Agent 在整分钟边界形成请求尖峰。结果按 `device_id + probe_mode + ip_version + source_ip` 分组，将同一组内各 `target_ip` 的 ICMP、TCP 和 UDP 汇总结果放入 `targets` 数组；同时按 `ip_version + probe_mode + source_ip + target_ip + protocol_type` 聚合当前窗口的丢包，每个聚合维度最多生成一条告警，所有告警通过一个 `alerts` 数组一次上报。随机延迟不改变请求中的窗口结束时间戳，也不阻塞下一窗口探测。`probe_mode` 仅表示目标所属的异网或跨省分类，不再表示用户在 Agent 中选择的运行模式。中央服务校验请求中的 `device_id` 后，将对应 `devices.id` 写入结果或事件的 `device_related_id`；发送告警时通过该字段关联设备用户，仅当用户仍关注且 `alert_type` 包含对应告警类型时发送微信消息。
+系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束后，为每个结果或告警 HTTP 请求独立生成 `[0, 10s)` 的随机延迟。结果按 `device_id + probe_mode + ip_version + source_ip` 分组；ICMP、TCP 固定上报，UDP 仅在目标携带 `udp_enabled = true` 时上报和产生告警。中央服务只为非空协议结果写入对应状态表。其余幂等、分类投影和微信通知规则保持一致。
 
 ### 2.4 持续探测与按需探测隔离
 
@@ -56,6 +56,8 @@
 ### 2.5 控制任务轮询与设备心跳
 
 Agent 的控制任务长轮询同时作为设备心跳。中央服务在轮询请求通过设备身份校验后刷新 `devices.last_seen_at`，并根据统一离线阈值判断设备是否在线；即使当前没有任务或设备已关闭按需探测，Agent 也必须持续轮询，不再单独发送心跳请求。
+
+Agent 登录成功后主动监听当前可用地址族的 UDP 33434。持续目标查询和按需任务领取均使用最近 8 秒心跳判断目标 Agent 是否在线；发起请求的源 Agent 已通过本次请求刷新在线状态，因此 `udp_enabled = true` 表示两端 Agent 同时在线。
 
 ## 3. 总体架构
 
@@ -141,7 +143,7 @@ flowchart TD
 
 Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及设备身份校验字段，不提交用户选择的模式。中央服务校验非空源 IP 的版本和设备归属，在 `ip_dict` 中创建或复用记录，并刷新网络属性和 `update_time`。
 
-中央服务分别以 IPv4、IPv6 源地址筛选同版本目标。候选 IP 必须合法、`public_status = 1`、不是当前源 IP，且不得属于当前设备；候选 IP 不要求关联设备，也不依赖设备在线状态或 IP 刷新时间。分类条件如下：
+中央服务分别以 IPv4、IPv6 源地址筛选同版本目标。候选 IP 必须合法、`public_status = 1`、不是当前源 IP，且不得属于当前设备；ICMP、TCP 候选不要求关联设备或在线。每个目标额外返回 `udp_enabled`：仅当该 IP 关联的目标 Agent 最近 8 秒在线时为 `true`。分类条件如下：
 
 | 分类 | `probe_mode`     | 附加条件                                   |
 | ---- | ------------------ | ------------------------------------------ |
@@ -158,28 +160,32 @@ Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及
     {
       "public_ip": "203.0.113.20",
       "isp": 2,
-      "province": 12
+      "province": 12,
+      "udp_enabled": true
     }
   ],
   "cross_province_ipv4_targets": [
     {
       "public_ip": "198.51.100.30",
       "isp": 1,
-      "province": 31
+      "province": 31,
+      "udp_enabled": false
     }
   ],
   "cross_isp_ipv6_targets": [
     {
       "public_ip": "2001:db8:200::20",
       "isp": 2,
-      "province": 12
+      "province": 12,
+      "udp_enabled": true
     }
   ],
   "cross_province_ipv6_targets": [
     {
       "public_ip": "2001:db8:300::30",
       "isp": 1,
-      "province": 31
+      "province": 31,
+      "udp_enabled": false
     }
   ]
 }
@@ -202,11 +208,11 @@ Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及
 2. Agent 刷新中央服务返回的两个 IPv4 目标列表，以及 `source_ipv6` 有效时返回的两个 IPv6 目标列表，并处理列表中的全部目标。
 3. Agent 将两个 IPv4 列表中的 `public_ip` 解析为规范地址并合并去重，生成内部列表 `merged_ipv4_targets`；存在 IPv6 列表时以相同方式生成 `merged_ipv6_targets`。
 4. Agent 严格按相同 IP 版本执行探测：本机 IPv4 只探测 `merged_ipv4_targets`，本机 IPv6 只探测 `merged_ipv6_targets`。IPv6 不可用时不创建 `merged_ipv6_targets`。
-5. Agent 为合并列表中的每个唯一 IP 固定生成 ICMP、TCP 和 UDP 三个逻辑目标，并为每个逻辑目标启动独立 goroutine，在窗口开始时同时探测，不创建子进程、不分批执行。同一 IP 同时属于两个分类时不得重复创建 Driver 探测任务。ICMP Driver 按 IP 版本复用绑定通配地址的共享 socket，UDP 和 TCP Driver 不指定本地地址，由系统路由选择实际出口接口和地址。
+5. Agent 为每个唯一 IP 固定生成 ICMP、TCP 逻辑目标；仅在 `udp_enabled = true` 时生成 UDP 逻辑目标。各逻辑目标独立并发执行，同一 IP 同时属于两个分类时不重复探测。
 6. 每个逻辑目标在每个自然分钟窗口内固定执行 100 次探测。发送间隔由 `probe_interval = window_duration / probe_count` 计算；窗口固定为 60 秒，因此发送间隔为 `60s / 100 = 600ms`。
 7. 第 `i` 次探测的计划发送时刻为 `window_start + i * probe_interval`，其中 `i` 从 0 到 99。Scheduler 使用基于窗口起点的绝对计划时刻，避免单次探测耗时造成累计漂移；最后一次发送时刻为窗口开始后的 59.4 秒。
 8. 各 Driver 按协议语义匹配响应并生成统一结果；单次探测判定为丢包时仅累计到当前逻辑目标统计，不立即发起告警请求。
-9. 窗口结束后分别计算各唯一目标三种协议的丢包率和成功响应平均延迟，在终端输出本窗口结果，再按目标的所属分类将同一份统计结果投影到对应 `probe_mode`，并以 `device_id + probe_mode + ip_version + source_ip` 分组写入 `targets` 数组后上报。仅为至少包含一个目标的分类生成结果上报；发生丢包的目标按 IP 版本、分类和协议生成分钟告警，所有分钟告警通过单个批次请求上报。
+9. 窗口结束后计算已执行协议的统计并按分类投影上报。未启用 UDP 时目标的 `udp` 为 `null`，不生成 UDP 告警，中央服务也不写入 `probe_state_udp`。
 
 ### 4.5 临时 IP 按需查询
 
@@ -220,7 +226,7 @@ flowchart TD
     Active -- 否 --> Create["创建执行记录和节点任务"]
     Reuse --> Query["创建独立查询记录并返回 id"]
     Create --> Query
-    Create --> Probe["Agent 领取任务并完成三协议探测"]
+    Create --> Probe["Agent 领取任务并完成已启用协议探测"]
     Probe --> Report["幂等上报节点结果"]
     Reuse --> Aggregate["中央服务聚合执行结果"]
     Report --> Aggregate
@@ -237,14 +243,14 @@ flowchart TD
 #### 4.5.2 Agent 执行
 
 1. Agent 使用 `device_id` 长轮询本设备任务；轮询通过设备身份校验后，中央服务刷新 `devices.last_seen_at`。无任务或 `on_demand_status = 0` 时返回空任务，Agent 仍须继续轮询。中央服务以 `id + probe_device_id + status = 1` 为条件将节点任务原子更新为执行中并返回任务；更新失败表示任务已被其他请求获取。节点任务一旦进入执行中便不再重新下发。Agent 获取任务后为其创建独立 goroutine 和 Context，并立即继续轮询，同一节点可以并发执行来自不同执行记录的节点任务。
-2. Agent 校验固定参数后并行执行 ICMP、TCP 80 和 UDP 33434，每个协议 10 次。发送时刻为 0ms 至 900ms、间隔 100ms，单次超时 300ms，最晚等待到约 1.2 秒。
-3. Agent 按协议计算整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms` 后幂等上报；失败时按 1 秒间隔有限重试，最多尝试 3 次。同一节点的两个分类共享结果；按需探测不产生分钟聚合丢包告警，也不受 `users.alert_type` 控制。
+2. 中央服务在任务领取时重新检查临时目标关联 Agent 的在线状态并下发 `udp_enabled`。Agent 并行执行 ICMP、TCP 80；仅在该标志为 `true` 时执行 UDP 33434。每个已启用协议探测 10 次，发送间隔 100ms，单次超时 300ms。
+3. Agent 按已执行协议汇总后幂等上报；未执行的 UDP 为 `null`。同一节点的两个分类共享结果，按需探测不产生分钟告警。
 
 #### 4.5.3 聚合与返回
 
 中央服务原子保存每个节点的完整上报。用户通过查询记录 `id` 轮询；执行未终态时也立即返回已完成节点，不等待其他节点。
 
-顶层 `results` 固定包含 `cross_isp_results` 和 `cross_province_results`，只投影已完成节点。每项使用 `source_ip_id` 标识节点源 IP 记录，不返回 IP 字面量；协议结果仅返回 `loss_rate` 和 `average_latency_ms`。同一节点属于两类时投影到两个数组，但只探测和存储一次。其他节点仅计入状态数量。
+顶层 `results` 固定包含 `cross_isp_results` 和 `cross_province_results`，只投影已完成节点。每项使用 `source_ip_id` 标识节点；ICMP、TCP 返回汇总值，UDP 未执行时返回 `null`，前端对应字段显示 `-`。同一节点属于两类时只探测和存储一次。
 
 非终态响应示例如下：
 
@@ -308,17 +314,17 @@ flowchart TD
 
 ### 5.1 逻辑目标
 
-每个实际探测目标使用稳定且唯一的 `target_id` 标识。Agent 根据 `ip_version`、`source_ip`、规范化后的目标 IP、协议和端口生成 `target_id`，`probe_mode` 不参与实际探测目标 ID 的生成；同一源目标组合同时属于异网和跨省时必须复用同一个 ID。目标由 IP 版本、源地址、目标地址、协议和端口共同定义，且源地址与目标地址的 IP 版本必须一致。每个合并后的唯一目标 IP 固定生成 ICMP、TCP 和 UDP 三个逻辑目标，各自独立统计；目标的所属分类集合只用于结果分组和告警事件生成。
+每个实际探测目标使用稳定且唯一的 `target_id` 标识。Agent 根据 IP 版本、源目标 IP、协议和端口生成该标识，`probe_mode` 不参与实际探测目标 ID。同一源目标组合同时属于异网和跨省时复用探测。每个唯一目标固定生成 ICMP、TCP 逻辑目标，UDP 逻辑目标受 `udp_enabled` 控制。
 
-按需探测复用相同的 Driver，但其逻辑目标 ID 额外包含节点任务 `id`，避免与同一 Agent 正在执行的持续探测或其他参数不同的按需执行发生统计和响应匹配冲突。同一节点任务同时属于两个分类时仍只生成三种协议各一个逻辑目标。
+按需探测复用相同的 Driver，但其逻辑目标 ID 额外包含节点任务 `id`。同一节点任务同时属于两个分类时仍只执行一组 ICMP、TCP 及可选 UDP 探测。
 
 | 协议 | 固定端口   | 成功条件                                                  | 延迟含义     |
 | ---- | ---------- | --------------------------------------------------------- | ------------ |
 | ICMP | 不使用端口 | 收到匹配的 ICMP/ICMPv6 Echo Reply                         | ICMP RTT     |
 | TCP  | `80`     | TCP connect 成功，或收到 connection refused               | TCP 响应 RTT |
-| UDP  | `33434`  | 收到目标 UDP 回复，或收到目标返回的 ICMP Port Unreachable | UDP 往返时间 |
+| UDP  | `33434`  | 收到目标 Agent 返回且 payload 完全匹配的 UDP Echo          | UDP RTT      |
 
-TCP 固定探测端口 80。TCP connect 成功和 connection refused 均证明目标网络可达，二者都计为成功响应并纳入平均延迟；只有 TCP timeout、无响应或其他无法证明目标可达的错误才计为丢包。UDP 固定探测端口 33434，直接向目标 IP 和端口发送带匹配标识的 datagram，不发送 DNS 请求。目标端口开放但应用不回复、目标防火墙静默丢弃和网络丢包均可能表现为超时，因此 UDP timeout 计入丢包率时必须保留该语义限制。
+TCP 固定探测端口 80，connect 成功和 connection refused 均按成功计入 RTT。UDP 固定使用 33434：目标 Agent 主动监听并仅对 `netpulse` payload 回复相同内容；探测端必须收到完全匹配的回复才算成功，connection refused、载荷不匹配和超时均计为丢包。
 
 ### 5.2 默认参数
 
@@ -331,7 +337,7 @@ TCP 固定探测端口 80。TCP connect 成功和 connection refused 均证明�
 | 单次探测超时         | 300ms                 |
 | 自然分钟窗口         | 固定 60s              |
 | 探测目标分类         | 自动执行异网和跨省    |
-| 探测协议             | 固定 ICMP、TCP、UDP   |
+| 探测协议             | ICMP、TCP；在线目标启用 UDP |
 
 #### 5.2.2 临时 IP 按需探测参数
 
@@ -342,7 +348,7 @@ TCP 固定探测端口 80。TCP connect 成功和 connection refused 均证明�
 | 发送间隔                 | 1s / 10，固定 100ms            |
 | 单次探测超时             | 300ms                          |
 | 探测节点分类             | 自动选择异网和跨省在线公开节点 |
-| 探测协议                 | 固定 ICMP、TCP 80、UDP 33434   |
+| 探测协议                 | ICMP、TCP 80；目标在线时启用 UDP 33434 |
 | 按需执行服务端总截止时间 | 默认 15s                       |
 
 ### 5.3 统一统计规则
@@ -352,7 +358,7 @@ loss_rate = (attempted_count - successful_count) / attempted_count * 1000
 average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 ```
 
-- 有效窗口必须完成 100 次探测，只统计超时前收到的合法且唯一响应。
+- 有效窗口中 ICMP、TCP 及已启用的 UDP 必须完成 100 次探测，只统计超时前收到的合法且唯一响应。
 - `loss_rate` 使用 0 至 1000 的整数千分比；例如 1% 丢包为 `10`，10% 丢包为 `100`，100% 丢包为 `1000`。
 - `average_latency_ms` 使用四舍五入后的整数毫秒，最大值为 `300ms`。
 - 平均延迟仅计算成功响应并封顶为 `300ms`；100% 丢包时没有成功 RTT 样本，统一使用 `300ms`，不得返回 `null`。该值在 `loss_rate = 1000` 时是丢包占位值，不代表真实 RTT。
@@ -362,7 +368,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 
 - **ICMP Driver**：使用 `golang.org/x/net/icmp` 收发 ICMPv4/ICMPv6 消息，按 IP 版本共享 socket 和接收 goroutine，将 socket 绑定到逻辑目标的 `source_ip`，并根据源 IP、目标 IP、Identifier 和 Sequence 匹配 Echo Reply。
 - **TCP Driver**：使用与 `ip_version` 对应的 `net.Dialer`，通过 `LocalAddr` 绑定 `source_ip` 后建立 TCP 连接，连接成功后立即关闭；connection refused 表示主机可达但端口未开放，应按成功探测记录 RTT 并单独分类，不计入丢包率，也不产生丢包告警。TCP timeout 或无法证明目标可达的错误计为丢包。
-- **UDP Driver**：使用与 `ip_version` 对应的 socket 并绑定 `source_ip`，直接向相同 IP 版本的目标地址和端口发送带匹配标识的 datagram，为每个未决探测分配可回收的唯一 source port，并根据五元组、payload 标识及 ICMP 引用的原始 UDP header 匹配目标 UDP 回复或 ICMP/ICMPv6 Port Unreachable；单纯成功发送 datagram 不视为探测成功。
+- **UDP Responder/Driver**：Agent 登录后在可用地址族的 UDP 33434 通配地址上监听，收到 `netpulse` 后向来源回复相同 payload。Driver 由系统路由选择源地址，发送该 payload 并等待目标回复；只有来源 socket 和 payload 均匹配时记录 RTT，单纯发送成功或 ICMP Port Unreachable 不视为成功。
 
 各 Driver 只负责协议收发与单次结果分类。窗口调度、并发启动、统计汇总、结果上报和丢包告警由统一 Probe Engine 管理，避免为不同协议重复实现调度与上报逻辑。
 
@@ -399,11 +405,11 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 }
 ```
 
-中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 作为上报幂等键，并以首次完整持久化的请求内容为准。中央服务根据 `device_id + source_ip` 查询设备及源 IP 归属，再遍历 `targets`，根据全局唯一的 `target_ip` 查询目标 IP 记录，并校验目标不属于当前设备、源目标版本均等于请求中的 `ip_version`，以及目标符合对应分类和公开状态；目标本身不要求关联设备。任一目标校验失败时拒绝整份上报。校验通过后，各目标结果按协议分别写入 `probe_state_icmp`、`probe_state_tcp` 和 `probe_state_udp`，每条记录的 `device_related_id` 保存本次上报设备的 `devices.id`；相同幂等键的重试通过比较三张状态表中的已有设备关联及探测结果处理。
+中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 处理幂等上报并校验源目标归属、版本、分类和公开状态。ICMP、TCP 固定写入对应状态表；`udp` 非空时才写入 `probe_state_udp`，各协议结果在同一次事务尝试中原子提交。若并发重复上报触发 MySQL `1062`，中央服务回滚当前事务并使用新事务重试一次：已有内容一致时视为成功，内容不一致时拒绝请求，其他完整性错误不重试。缺少 UDP 状态的常规报告由前端显示 `-`。
 
 ### 6.2 分钟聚合丢包告警
 
-任一协议在自然分钟内至少一次探测未满足成功条件时，Agent 在窗口结束后按目标的所属分类分别生成分钟告警。同一 IP 同时属于异网和跨省时，分别生成一条 `cross_isp` 和一条 `cross_province` 告警，但不得重复执行网络探测；同一窗口、目标、协议和分类无论丢包多少次都只生成一条事件。TCP connection refused 仍按成功处理，不触发告警。当前窗口的全部事件封装在一个 `alerts` 数组中一次上报；没有丢包时不发起告警请求。
+已执行协议在自然分钟内发生丢包时，Agent 按目标分类生成分钟告警；同一目标属于两个分类时复用探测但分别投影告警。未启用 UDP 的目标不生成 UDP 告警，TCP connection refused 仍按成功处理。
 
 ```json
 {
@@ -427,7 +433,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 
 ### 6.3 临时 IP 按需结果上报
 
-Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键上报三种协议结果，并在失败时有限重试。API 使用 `task_id` 表示该字段，当前请求同时携带 `device_id`，示例如下：
+Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键上报结果并在失败时有限重试。ICMP、TCP 必填，UDP 未启用时为 `null`。API 使用 `task_id` 表示该字段，示例如下：
 
 ```json
 {
@@ -446,10 +452,7 @@ Agent 完成一个节点任务后，以节点任务 `id` 作为幂等键上报�
       "loss_rate": 0,
       "average_latency_ms": 25
     },
-    "udp": {
-      "loss_rate": 200,
-      "average_latency_ms": 22
-    }
+    "udp": null
   }
 }
 ```
@@ -467,7 +470,7 @@ device:
   device_id: "5b65a1c8-6f23-4e10-b0c9-58ccaa1acd87"
 ```
 
-本地配置暂时只保存 `device_id`，不包含 `monitor` 或告警类型配置块。Agent 每次启动并确认登录状态后自动获取两个 IPv4 目标列表；`source_ipv6` 有效时额外获取两个 IPv6 目标列表。Agent 将同版本的异网和跨省列表按规范化 IP 去重合并，本机 IPv4 只探测合并后的 IPv4 列表，本机 IPv6 只探测合并后的 IPv6 列表。合并后的每个唯一目标 IP 固定执行 ICMP、TCP 80 和 UDP 33434 三种探测。用户的告警类型设置只保存在中央服务，不下发或持久化到 Agent。
+本地配置只保存 `device_id`。Agent 登录成功后监听 UDP 33434，并自动获取携带 `udp_enabled` 的双栈目标列表；合并后的每个唯一目标固定执行 ICMP、TCP 80，仅在目标 Agent 在线时执行 UDP。在线能力和告警设置均不写入本地配置。
 
 按需任务不写入本地配置。Agent 当前只使用相同的 `device_id` 轮询任务，不携带或持久化 `device_signature`；Agent 在内存中按节点任务 `id` 分别保存执行状态，并复用现有 Probe Engine 与三种协议 Driver。Agent 不配置按需任务并发数量，也不因已有任务正在执行而停止轮询；不同节点任务使用独立 goroutine、Context 和统计对象并发执行。持续分钟探测仍具有更高调度优先级，按需任务不得推迟自然分钟窗口；执行超过总截止时间时中央服务将节点任务标记为超时。
 
@@ -491,7 +494,7 @@ Agent 查询目标时，中央服务为当前公网 IPv4 生成 `cross_province_
 
 ### 11.2 Agent
 
-Agent 编译为单个 Linux 二进制文件并部署到用户服务器，运行期间不创建探测子进程。运行前需授予 ICMP 探测和 UDP 错误接收所需的 ICMPv4/ICMPv6 socket 权限；启动时检查中央服务连接、服务端设备网络属性识别状态、ICMPv4/ICMPv6 socket、UDP 和 TCP 能力，检查通过后进入持续探测。
+Agent 编译为单个 Linux 二进制并部署到用户服务器。运行前需授予 ICMP socket 权限，并由部署环境确保 UDP 33434 入站及回复流量可达；Agent 不自动修改主机防火墙、NAT 或云安全组。IPv4 listener 固定启动，获取到公网 IPv6 时同时启动 IPv6 listener。
 
 ## 12. 实施计划
 

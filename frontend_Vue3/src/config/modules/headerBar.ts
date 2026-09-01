@@ -35,7 +35,7 @@ export const headerBarConfig: HeaderBarFeatureConfig = {
     description: '全局搜索功能，支持快捷键 Ctrl+K 或 Cmd+K'
   },
   fullscreen: {
-    enabled: true,
+    enabled: false,
     description: '全屏切换功能'
   },
   notification: {

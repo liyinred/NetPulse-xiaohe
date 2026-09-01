@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from app.core.config import IP_LOOKUP_API_KEY
+from app.services.http_observability import record_outbound_response_error
 
 
 IP_LOOKUP_ENDPOINT = "http://43.138.198.101:8000/ip/api/apix"
@@ -120,6 +121,11 @@ async def lookup_network(
             response = await client.post(
                 IP_LOOKUP_ENDPOINT,
                 json={"apikey": IP_LOOKUP_API_KEY, "ranges": str(cidr)},
+            )
+            record_outbound_response_error(
+                response.status_code,
+                response.request.method,
+                response.request.url.path,
             )
             response.raise_for_status()
             payload: Any = response.json()

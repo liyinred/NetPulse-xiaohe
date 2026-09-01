@@ -10,6 +10,7 @@ from app.api.routes.on_demand_probe import web_router as on_demand_probe_web_rou
 from app.api.routes.public_ip import router as public_ip_router
 from app.api.routes.probe import router as probe_router
 from app.api.routes.probe import web_router as probe_web_router
+from app.api.routes.system_log import prometheus_router, router as system_log_router
 from app.api.routes.user import router as user_router
 from app.api.routes.wechat_callback import router as callback_router
 from app.api.routes.wechat_qrcode import router as qrcode_router
@@ -27,3 +28,5 @@ api_router.include_router(public_ip_router)
 api_router.include_router(probe_router)
 api_router.include_router(probe_web_router)
 api_router.include_router(user_router)
+api_router.include_router(system_log_router)
+api_router.include_router(prometheus_router)
