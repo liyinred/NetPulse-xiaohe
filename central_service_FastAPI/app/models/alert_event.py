@@ -29,12 +29,10 @@ class AlertEvent(Base):
     )
     source_ip_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("ip_dict.id"),
         nullable=True,
     )
     target_ip_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("ip_dict.id"),
         nullable=True,
     )
     protocol_type: Mapped[int | None] = mapped_column(Integer, nullable=True)

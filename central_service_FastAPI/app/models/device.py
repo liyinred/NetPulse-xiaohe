@@ -31,4 +31,3 @@ class Device(Base):
     )
     last_seen_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_time: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    updated_time: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

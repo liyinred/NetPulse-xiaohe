@@ -78,8 +78,8 @@ def _upsert_ip_record(
     public_ip: IPv4Address | IPv6Address,
     update_time: int,
     network_info: NetworkInfo | None = None,
-) -> None:
-    """创建或刷新设备关联的 IP 字典记录。
+) -> IPDict:
+    """创建或按实际变更刷新设备关联的 IP 字典记录。
 
     参数:
         session: 当前数据库会话。
@@ -88,21 +88,46 @@ def _upsert_ip_record(
         update_time: 本次刷新 Unix 时间戳，单位秒。
         network_info: IPv4 归属查询结果；IPv6 暂无结果时允许为空。
     返回:
-        无返回值；记录变更写入当前事务。
+        创建或已有的 IP 字典记录；仅在新增、设备关联、IP 版本或归属信息变化时写入更新时间。
     """
     ip_text = str(public_ip)
     ip_record = session.scalar(select(IPDict).where(IPDict.ip == ip_text))
     if ip_record is None:
-        ip_record = IPDict(ip=ip_text)
+        ip_record = IPDict(
+            ip=ip_text,
+            device_related_id=device_id,
+            ip_version=public_ip.version,
+            update_time=update_time,
+        )
+        if network_info is not None:
+            ip_record.isp = network_info.isp
+            ip_record.province = network_info.province
+            ip_record.city = network_info.city_name
         session.add(ip_record)
+        return ip_record
+
+    has_changed = (
+        ip_record.device_related_id != device_id
+        or ip_record.ip_version != public_ip.version
+    )
+    if network_info is not None and (
+        ip_record.isp != network_info.isp
+        or ip_record.province != network_info.province
+        or ip_record.city != network_info.city_name
+    ):
+        has_changed = True
+
+    if not has_changed:
+        return ip_record
 
     ip_record.device_related_id = device_id
     ip_record.ip_version = public_ip.version
-    ip_record.update_time = update_time
     if network_info is not None:
         ip_record.isp = network_info.isp
         ip_record.province = network_info.province
         ip_record.city = network_info.city_name
+    ip_record.update_time = update_time
+    return ip_record
 
 
 def _persist_device_binding(
@@ -137,7 +162,6 @@ def _persist_device_binding(
         session.flush()
 
     device.user_id = user_id
-    device.updated_time = update_time
     _upsert_ip_record(
         session,
         device.id,

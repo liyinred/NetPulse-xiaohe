@@ -17,12 +17,10 @@ class ProbeStateMixin:
     )
     source_ip_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("ip_dict.id"),
         primary_key=True,
     )
     target_ip_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("ip_dict.id"),
         primary_key=True,
     )
     probe_mode: Mapped[int] = mapped_column(Integer, primary_key=True)

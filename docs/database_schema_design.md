@@ -45,7 +45,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 
 编号规则为：`1`=未知，`2`=北京，`3`=福建，`4`=甘肃，`5`=广东，`6`=广西，`7`=贵州，`8`=海南，`9`=河北，`10`=河南，`11`=黑龙江，`12`=湖北，`13`=湖南，`14`=吉林，`15`=江苏，`16`=江西，`17`=辽宁，`18`=内蒙古，`19`=宁夏，`20`=青海，`21`=山东，`22`=山西，`23`=陕西，`24`=上海，`25`=四川，`26`=天津，`27`=西藏，`28`=新疆，`29`=云南，`30`=浙江，`31`=重庆，`32`=安徽，`33`=香港，`34`=台湾，`35`=澳门。
 
-同一设备可通过相同的 `device_related_id` 关联多条 `ip_dict` 记录。IP 记录创建时允许 `device_related_id` 为空，后续确认设备归属时可将其更新为对应的 `devices.id`。发现已属于该设备的 IP 时复用其 `id`，刷新网络属性和 `update_time`，但不得覆盖已有的 `public_status`；`ip` 的唯一约束保证同一个公网 IP 只对应一条记录。
+同一设备可通过相同的 `device_related_id` 关联多条 `ip_dict` 记录。IP 记录创建时允许 `device_related_id` 为空，后续确认设备归属时可将其更新为对应的 `devices.id`。发现已属于该设备的 IP 时复用其 `id`，仅在设备关联、IP 版本或网络属性变化时刷新 `update_time`，且不得覆盖已有的 `public_status`；`ip` 的唯一约束保证同一个公网 IP 只对应一条记录。
 
 ### 7.3 `devices`
 
@@ -57,7 +57,6 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `on_demand_status` | `INT`         | `NOT NULL`, `DEFAULT 1`, `CHECK` | 是否接受临时 IP 按需任务；`0`=关闭、`1`=开启            |
 | `last_seen_at`     | `INT64`       | -                                      | 最近一次通过身份校验的控制任务轮询时间，Unix 时间戳，单位秒 |
 | `created_time`     | `INT64`       | -                                      | 创建时间，Unix 时间戳，单位秒                               |
-| `updated_time`     | `INT64`       | -                                      | 更新时间，Unix 时间戳，单位秒                               |
 
 绑定设备时，中央服务更新 `devices.user_id`，并将已获取的公网 IPv4/IPv6 写入或更新 `ip_dict`，关联对应 `devices.id`；新增 IP 不覆盖该设备已有记录。`on_demand_status` 默认开启，用户后续可在多设备管理中关闭单个设备的按需探测能力；关闭只阻止新任务创建，已进入执行中的任务允许完成并上报。
 
@@ -71,8 +70,8 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | ---------------- | --------- | ------------------------------------- | ------------------------------------------ |
 | `time_id`      | `INT64` | `PK` 组成部分，`INDEX`            | 窗口结束 Unix 时间戳，单位秒               |
 | `device_related_id` | `INT` | `NOT NULL`, `FK → devices.id`   | 上报该分钟结果的设备内部主键               |
-| `source_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 发起探测的源公网 IP 记录                   |
-| `target_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                           |
+| `source_ip_id` | `INT`   | `PK` 组成部分 | 发起探测的源公网 IP 记录 ID（逻辑关联）    |
+| `target_ip_id` | `INT`   | `PK` 组成部分 | 目标公网 IP 记录 ID（逻辑关联）            |
 | `probe_mode`   | `INT`   | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省           |
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | ICMP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | ICMP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
@@ -85,8 +84,8 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | ---------------- | --------- | ------------------------------------- | ----------------------------------------- |
 | `time_id`      | `INT64` | `PK` 组成部分，`INDEX`            | 窗口结束 Unix 时间戳，单位秒              |
 | `device_related_id` | `INT` | `NOT NULL`, `FK → devices.id`   | 上报该分钟结果的设备内部主键              |
-| `source_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 发起探测的源公网 IP 记录                  |
-| `target_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                          |
+| `source_ip_id` | `INT`   | `PK` 组成部分 | 发起探测的源公网 IP 记录 ID（逻辑关联）   |
+| `target_ip_id` | `INT`   | `PK` 组成部分 | 目标公网 IP 记录 ID（逻辑关联）           |
 | `probe_mode`   | `INT`   | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省          |
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | TCP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | TCP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
@@ -99,13 +98,13 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | ---------------- | --------- | ------------------------------------- | ----------------------------------------- |
 | `time_id`      | `INT64` | `PK` 组成部分，`INDEX`            | 窗口结束 Unix 时间戳，单位秒              |
 | `device_related_id` | `INT` | `NOT NULL`, `FK → devices.id`   | 上报该分钟结果的设备内部主键              |
-| `source_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 发起探测的源公网 IP 记录                  |
-| `target_ip_id` | `INT`   | `PK` 组成部分，`FK → ip_dict.id` | 目标公网 IP 记录                          |
+| `source_ip_id` | `INT`   | `PK` 组成部分 | 发起探测的源公网 IP 记录 ID（逻辑关联）   |
+| `target_ip_id` | `INT`   | `PK` 组成部分 | 目标公网 IP 记录 ID（逻辑关联）           |
 | `probe_mode`   | `INT`   | `PK` 组成部分，`CHECK`            | 目标分类：`1`=异网、`2`=跨省          |
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | UDP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | UDP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
 
-三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键。中央服务校验设备、源目标 IP、版本和分类后，将非空协议结果写入对应状态表；ICMP、TCP 固定写入，UDP 为 `null` 时跳过 `probe_state_udp`。其余字段映射和幂等比较规则相同。
+三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键，并各自维护非唯一复合索引 `ix_probe_state_{type}_time_source_mode`（`time_id + source_ip_id + probe_mode`），用于按分钟窗口、源 IP 和探测分类查询已有结果以完成幂等校验。中央服务校验设备、源目标 IP、版本和分类后，将非空协议结果写入对应状态表；ICMP、TCP 固定写入，UDP 为 `null` 时跳过 `probe_state_udp`。其余字段映射和幂等比较规则相同。
 
 ### 7.7 `alert_events`
 
@@ -115,14 +114,14 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | ----------------- | --------------- | -------------------- | ---------------------------------------------- |
 | `event_id`      | `VARCHAR(36)` | `PK`               | Agent 生成的事件唯一标识，同时作为告警幂等键   |
 | `device_related_id` | `INT`       | `NOT NULL`, `FK → devices.id` | 上报该告警事件的设备内部主键       |
-| `source_ip_id`  | `INT`         | `FK → ip_dict.id` | 发起探测的源公网 IP 记录                       |
-| `target_ip_id`  | `INT`         | `FK → ip_dict.id` | 发生丢包的目标公网 IP 记录                     |
+| `source_ip_id`  | `INT`         | - | 发起探测的源公网 IP 记录 ID（逻辑关联）          |
+| `target_ip_id`  | `INT`         | - | 发生丢包的目标公网 IP 记录 ID（逻辑关联）        |
 | `protocol_type` | `INT`         | `CHECK`            | 协议编码：`1`=ICMP、`2`=TCP、`3`=UDP     |
 | `probe_mode`    | `INT`         | `CHECK`            | 目标分类编码：`1`=异网、`2`=跨省           |
 | `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
 | `message`       | `TEXT`        | -                    | 包含分类、协议及源目标地址的告警事件摘要       |
 
-中央服务根据告警中的 `device_id` 查询已绑定设备，将其内部主键写入 `device_related_id`，并结合 `source_ip` 查询归属匹配的 `ip_dict.id` 写入 `source_ip_id`；根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 写入 `target_ip_id`，同时校验目标不属于当前设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。目标 IP 不要求关联设备。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过两个 IP 外键关联获取。事件记录始终保存 `message`；发送服务号模板消息时，中央服务直接通过 `alert_events.device_related_id` 查询 `devices.user_id`，再查询对应用户的 `openid`、关注状态和 `alert_type`，仅向仍关注且告警类型匹配的用户发送通知。`alert_type=0` 时告警事件仍正常保存，但不发送任何服务号模板消息。
+中央服务根据告警中的 `device_id` 查询已绑定设备，将其内部主键写入 `device_related_id`，并结合 `source_ip` 查询归属匹配的 `ip_dict.id` 写入 `source_ip_id`；根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 写入 `target_ip_id`，同时校验目标不属于当前设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。目标 IP 不要求关联设备。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过查询关联 IP 记录校验。事件记录始终保存 `message`；发送服务号模板消息时，中央服务直接通过 `alert_events.device_related_id` 查询 `devices.user_id`，再查询对应用户的 `openid`、关注状态和 `alert_type`，仅向仍关注且告警类型匹配的用户发送通知。`alert_type=0` 时告警事件仍正常保存，但不发送任何服务号模板消息。
 
 ### 7.8 `on_demand_executions`
 

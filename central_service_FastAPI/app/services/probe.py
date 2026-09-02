@@ -60,6 +60,7 @@ ALERT_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 PROBE_RANGE_DAYS = {"1d": 1, "2d": 2, "7d": 7}
 REPORT_LOSS_FAILURE_RATE = 100.0
 REPORT_LATENCY_FAILURE_MS = 300.0
+ALERT_LOSS_RATE_THRESHOLD = 100
 PROBE_STATE_MODELS = {
     "icmp": ICMPProbeState,
     "tcp": TCPProbeState,
@@ -494,42 +495,25 @@ def _matches_mode(source: IPDict, target: IPDict, mode: str) -> bool:
 
 
 def _load_targets(
-    session: Session,
+    rows: list[IPDict],
     source: IPDict,
-    device: Device,
+    device_id: int,
     version: int,
     mode: str,
+    online_device_ids: set[int],
 ) -> list[ProbeTarget]:
-    """查询同版本公开目标并标记其 UDP Agent 在线能力。
+    """从已加载的公开 IP 中筛选指定分类的探测目标。
 
     参数:
-        session: 当前数据库会话。
+        rows: 已按主键排序的公开候选 IP 记录。
         source: 当前设备的源 IP 记录。
-        device: 当前 Agent 设备。
+        device_id: 当前 Agent 设备内部主键。
         version: 目标 IP 版本。
         mode: cross_isp 或 cross_province。
+        online_device_ids: 当前在线的设备内部主键集合。
     返回:
         按 IP 记录主键排序且携带 UDP 可用状态的目标列表。
     """
-    rows = session.scalars(
-        select(IPDict)
-        .where(
-            IPDict.id != source.id,
-            IPDict.public_status == 1,
-            IPDict.ip_version == version,
-        )
-        .order_by(IPDict.id)
-    ).all()
-    current_time = int(time())
-    online_device_ids = set(
-        session.scalars(
-            select(Device.id).where(
-                Device.device_id.is_not(None),
-                Device.last_seen_at.is_not(None),
-                Device.last_seen_at >= current_time - DEVICE_ONLINE_SECONDS,
-            )
-        ).all()
-    )
     return [
         ProbeTarget(
             public_ip=ip_address(row.ip),
@@ -538,7 +522,8 @@ def _load_targets(
             udp_enabled=row.device_related_id in online_device_ids,
         )
         for row in rows
-        if row.device_related_id != device.id
+        if row.id != source.id
+        and row.device_related_id != device_id
         and row.isp is not None
         and row.province is not None
         and _is_valid_target_ip(row.ip, version)
@@ -573,16 +558,16 @@ async def discover_probe_targets(
     with SessionLocal.begin() as session:
         device = _get_device(session, request.device_id)
         device.last_seen_at = current_time
-        device.updated_time = current_time
-        _upsert_ip_record(
+        source_ipv4 = _upsert_ip_record(
             session,
             device.id,
             request.source_ipv4,
             current_time,
             ipv4_network_info,
         )
+        source_ipv6 = None
         if request.source_ipv6 is not None:
-            _upsert_ip_record(
+            source_ipv6 = _upsert_ip_record(
                 session,
                 device.id,
                 request.source_ipv6,
@@ -590,44 +575,71 @@ async def discover_probe_targets(
                 ipv6_network_info,
             )
         session.flush()
-        source_ipv4 = session.scalar(
-            select(IPDict).where(IPDict.ip == str(request.source_ipv4))
+        device_id = device.id
+
+    with SessionLocal() as session:
+        versions = [4]
+        if source_ipv6 is not None and ipv6_network_info is not None:
+            versions.append(6)
+        rows_by_version = {version: [] for version in versions}
+        for row in session.scalars(
+            select(IPDict)
+            .where(
+                IPDict.public_status == 1,
+                IPDict.ip_version.in_(versions),
+            )
+            .order_by(IPDict.id)
+        ):
+            rows_by_version[row.ip_version].append(row)
+        online_device_ids = set(
+            session.scalars(
+                select(Device.id).where(
+                    Device.device_id.is_not(None),
+                    Device.last_seen_at.is_not(None),
+                    Device.last_seen_at >= current_time - DEVICE_ONLINE_SECONDS,
+                )
+            ).all()
         )
-        if source_ipv4 is None:
-            raise RuntimeError("IPv4 源地址刷新失败")
         response = ProbeTargetsResponse(
             source_ipv4=request.source_ipv4,
             source_ipv6=request.source_ipv6,
             cross_isp_ipv4_targets=_load_targets(
-                session, source_ipv4, device, 4, "cross_isp"
+                rows_by_version[4],
+                source_ipv4,
+                device_id,
+                4,
+                "cross_isp",
+                online_device_ids,
             ),
             cross_province_ipv4_targets=_load_targets(
-                session,
+                rows_by_version[4],
                 source_ipv4,
-                device,
+                device_id,
                 4,
                 "cross_province",
+                online_device_ids,
             ),
         )
-        if request.source_ipv6 is not None:
-            source_ipv6 = session.scalar(
-                select(IPDict).where(IPDict.ip == str(request.source_ipv6))
-            )
-            if source_ipv6 is None:
-                raise RuntimeError("IPv6 源地址刷新失败")
+        if source_ipv6 is not None:
             if ipv6_network_info is None:
                 response.cross_isp_ipv6_targets = []
                 response.cross_province_ipv6_targets = []
             else:
                 response.cross_isp_ipv6_targets = _load_targets(
-                    session, source_ipv6, device, 6, "cross_isp"
+                    rows_by_version[6],
+                    source_ipv6,
+                    device_id,
+                    6,
+                    "cross_isp",
+                    online_device_ids,
                 )
                 response.cross_province_ipv6_targets = _load_targets(
-                    session,
+                    rows_by_version[6],
                     source_ipv6,
-                    device,
+                    device_id,
                     6,
                     "cross_province",
+                    online_device_ids,
                 )
     target_lists = (
         response.cross_isp_ipv4_targets,
@@ -658,49 +670,19 @@ def _get_owned_source(
     """
     if source_ip.version != ip_version:
         raise ValueError("source_ip 与 ip_version 不匹配")
-    device = _get_device(session, device_id)
-    source = session.scalar(
-        select(IPDict).where(
+    record = session.execute(
+        select(Device, IPDict)
+        .join(IPDict, IPDict.device_related_id == Device.id)
+        .where(
+            Device.device_id == device_id,
+            Device.user_id.is_not(None),
             IPDict.ip == str(source_ip),
             IPDict.ip_version == ip_version,
-            IPDict.device_related_id == device.id,
         )
-    )
-    if source is None:
-        raise ValueError("source_ip 不属于当前设备")
-    return device, source
-
-
-def _get_valid_target(
-    session: Session,
-    device: Device,
-    source: IPDict,
-    target_ip: IPv4Address | IPv6Address,
-    ip_version: int,
-    mode: str,
-) -> IPDict:
-    """校验上报目标的版本、公开状态及分类。
-
-    参数:
-        session: 当前数据库会话。
-        device: 当前 Agent 设备。
-        source: 已校验的源 IP 记录。
-        target_ip: 上报的目标地址。
-        ip_version: 上报声明的 IP 版本。
-        mode: 上报分类。
-    返回:
-        校验通过的目标 IP 记录。
-    """
-    if target_ip.version != ip_version:
-        raise ValueError("target_ip 与 ip_version 不匹配")
-    target = session.scalar(
-        select(IPDict).where(
-            IPDict.ip == str(target_ip),
-            IPDict.ip_version == ip_version,
-            IPDict.public_status == 1,
-        )
-    )
-    return _validate_probe_target(device, source, target, mode)
+    ).one_or_none()
+    if record is None:
+        raise ValueError("设备未绑定或 source_ip 不属于当前设备")
+    return record[0], record[1]
 
 
 def _validate_probe_target(
@@ -813,11 +795,12 @@ def _save_probe_result_once(request: ProbeResultRequest) -> None:
             return
 
         for state_model, incoming_values, _ in protocol_states:
-            for target_id, (
-                device_related_id,
-                loss_rate,
-                rtt_ms,
-            ) in incoming_values.items():
+            for target_id in sorted(incoming_values):
+                (
+                    device_related_id,
+                    loss_rate,
+                    rtt_ms,
+                ) = incoming_values[target_id]
                 session.add(
                     state_model(
                         time_id=request.unix_timestamp,
@@ -1159,7 +1142,7 @@ def _build_template_messages(
 def _save_probe_alert_events(
     request: ProbeAlertsRequest,
 ) -> list[TemplateMessage]:
-    """校验并幂等保存自然分钟聚合告警事件。
+    """校验并幂等保存丢包率超过 10% 的自然分钟聚合告警事件。
 
     参数:
         request: Agent 上报的自然分钟聚合丢包告警。
@@ -1210,6 +1193,8 @@ def _save_probe_alert_events(
         template_groups = {}
         for alert in request.alerts:
             if alert.event_id in existing_event_ids:
+                continue
+            if alert.loss_rate <= ALERT_LOSS_RATE_THRESHOLD:
                 continue
             if alert.source_ip.version != alert.ip_version:
                 raise ValueError("source_ip 与 ip_version 不匹配")
