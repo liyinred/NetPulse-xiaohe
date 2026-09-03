@@ -37,6 +37,7 @@ const (
 //
 // 返回值: 流程成功时返回 nil，否则返回具体错误。
 func Run(ctx context.Context, input io.Reader, output io.Writer) error {
+	fmt.Fprintln(output, "NetPulse Agent 正在初始化...")
 	configPath, err := config.ExecutablePath()
 	if err != nil {
 		return err
@@ -48,12 +49,12 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	defer logFile.Close()
 	firewallBackend, err := configureLinuxFirewall(ctx)
 	if err != nil {
-		fmt.Fprintf(output, "自动配置防火墙失败，Agent 将继续运行: %v\n", err)
+		fmt.Fprintf(output, "  防火墙：自动配置失败，不影响 Agent 继续运行：%v\n", err)
 	}
 	if firewallBackend != "" && err == nil {
 		fmt.Fprintf(
 			output,
-			"Linux %s 已放行 UDP 33434 和 TCP 80 的入站及出站流量。\n",
+			"  防火墙：已通过 Linux %s 放行 UDP 33434 和 TCP 80 的入站及出站流量\n",
 			firewallBackend,
 		)
 	}
@@ -88,22 +89,27 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(output, "  公网 IPv4：%s\n", sourceIPv4)
 
 	var sourceIPv6 *netip.Addr
 	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
 	if ipv6Err == nil {
 		sourceIPv6 = &publicIPv6
+		fmt.Fprintf(output, "  公网 IPv6：%s\n", publicIPv6)
+	} else {
+		fmt.Fprintln(output, "  公网 IPv6：未检测到，本次将仅使用 IPv4")
 	}
 
 	qrCode, err := backend.RequestQRCode(ctx)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintln(output, "\n初始化完成，请使用微信扫描下方二维码并关注服务号：")
 	if err := printQRCode(output, qrCode.URL); err != nil {
 		return err
 	}
 
-	fmt.Fprintln(output, "请使用微信扫码关注服务号，正在等待确认...")
+	fmt.Fprintln(output, "正在等待扫码确认...")
 	bindingInfo, err := backend.WaitForLogin(
 		ctx,
 		qrCode.SceneString,
@@ -116,14 +122,12 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return fmt.Errorf("设备绑定更新失败: %w", err)
 	}
 
-	fmt.Fprintln(output, "登录成功，中央服务已完成设备绑定更新。")
 	printBindingInfo(output, bindingInfo)
 	udpResponder, err := probe.StartUDPResponder(ctx, sourceIPv6 != nil)
 	if err != nil {
 		return err
 	}
 	defer udpResponder.Close()
-	fmt.Fprintln(output, "UDP 探测回复已监听 33434 端口。")
 	onDemandRunner := probe.NewOnDemandRunner(
 		backend,
 		deviceID,
@@ -143,7 +147,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 	if !confirmed {
-		fmt.Fprintln(output, "暂不进行持续探测，临时 IP 探测节点保持在线。")
+		fmt.Fprintln(output, "已选择按需任务模式。Agent 将保持在线，等待临时 IP 探测与双向 MTR 任务。")
 		return onDemandRunner.Run(ctx)
 	}
 	go func() {
@@ -151,7 +155,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 			fmt.Fprintf(output, "临时 IP 探测轮询已停止: %v\n", runnerErr)
 		}
 	}()
-	fmt.Fprintln(output, "正在获取异网和跨省探测目标...")
+	fmt.Fprintln(output, "已选择完整探测模式，正在获取异网和跨省探测目标...")
 	probeEngine := probe.NewEngine(
 		backend,
 		deviceID,
@@ -189,7 +193,10 @@ func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
 	for {
 		if _, err := fmt.Fprint(
 			output,
-			"请选择运行模式:\n0. 暂不进行持续探测\n1. 进行持续探测\n请输入选项(0/1): ",
+			"\n请选择 Agent 运行模式：\n"+
+				"  0. 按需任务模式：执行临时 IP 探测与双向 MTR\n"+
+				"  1. 完整探测模式：在按需任务基础上，持续执行异网与跨省探测\n"+
+				"请输入选项（0 或 1）： ",
 		); err != nil {
 			return false, fmt.Errorf("输出持续探测提示失败: %w", err)
 		}
@@ -204,7 +211,7 @@ func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("读取持续探测确认失败: %w", err)
 		}
-		fmt.Fprintln(output, "请输入 0 或 1。")
+		fmt.Fprintln(output, "输入无效，请输入 0 或 1。")
 	}
 }
 
@@ -216,18 +223,21 @@ func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
 //
 // 返回值: 无。
 func printBindingInfo(output io.Writer, bindingInfo client.BindingInfo) {
-	fmt.Fprintf(output, "设备 ID: %s\n", bindingInfo.DeviceID)
-	fmt.Fprintf(output, "公网 IPv4: %s\n", bindingInfo.PublicIPv4)
+	fmt.Fprintln(output, "\n设备绑定成功，已完成设备信息更新：")
+	fmt.Fprintf(output, "  设备 ID：%s\n", bindingInfo.DeviceID)
+	fmt.Fprintf(output, "  公网 IPv4：%s\n", bindingInfo.PublicIPv4)
 	if bindingInfo.PublicIPv6 != nil {
-		fmt.Fprintf(output, "公网 IPv6: %s\n", *bindingInfo.PublicIPv6)
+		fmt.Fprintf(output, "  公网 IPv6：%s\n", *bindingInfo.PublicIPv6)
+	} else {
+		fmt.Fprintln(output, "  公网 IPv6：未检测到")
 	}
 	fmt.Fprintf(
 		output,
-		"省市: %s %s\n",
+		"  省市：%s %s\n",
 		bindingInfo.ProvinceName,
 		bindingInfo.City,
 	)
-	fmt.Fprintf(output, "运营商: %s\n", bindingInfo.ISPName)
+	fmt.Fprintf(output, "  运营商：%s\n", bindingInfo.ISPName)
 }
 
 // waitForPublicIPv4 最多尝试三次获取公网 IPv4。
@@ -250,14 +260,14 @@ func waitForPublicIPv4(
 		}
 		if attempt >= ipv4MaxAttempts {
 			return netip.Addr{}, fmt.Errorf(
-				"公网 IPv4 获取失败，已尝试 %d 次: %w",
+				"公网 IPv4 检测失败，已尝试 %d 次：%w",
 				ipv4MaxAttempts,
 				err,
 			)
 		}
 		fmt.Fprintf(
 			output,
-			"第 %d/%d 次公网 IPv4 获取失败，将在 %s 后重试: %v\n",
+			"  公网 IPv4：第 %d/%d 次检测失败，将在 %s 后重试：%v\n",
 			attempt,
 			ipv4MaxAttempts,
 			ipv4RetryDelay,

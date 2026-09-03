@@ -15,7 +15,10 @@ import (
 	"netpulse/terminal-agent/internal/client"
 )
 
-const mtrPollRetryDelay = time.Second
+const (
+	mtrEchoPayload    = "netpulse-mtr"
+	mtrPollRetryDelay = time.Second
+)
 
 // MTRRunner 长轮询、执行并上报双向 MTR 方向任务。
 type MTRRunner struct {
@@ -166,7 +169,7 @@ func traceICMPMTR(ctx context.Context, target netip.Addr) ([]client.MTRHop, erro
 				return hops, err
 			}
 			sequence++
-			message := icmp.Message{Type: echoType, Body: &icmp.Echo{ID: identifier, Seq: sequence, Data: []byte("netpulse-mtr")}}
+			message := icmp.Message{Type: echoType, Body: &icmp.Echo{ID: identifier, Seq: sequence, Data: []byte(mtrEchoPayload)}}
 			payload, marshalErr := message.Marshal(nil)
 			if marshalErr != nil {
 				return hops, marshalErr
@@ -183,21 +186,20 @@ func traceICMPMTR(ctx context.Context, target netip.Addr) ([]client.MTRHop, erro
 					break
 				}
 				response, parseErr := icmp.ParseMessage(protocol, buffer[:count])
-				if parseErr != nil || (response.Type != echoReply && response.Type != timeExceeded) {
+				if parseErr != nil {
 					continue
 				}
-				peerIP, _, splitErr := net.SplitHostPort(peer.String())
-				if splitErr == nil {
-					peer = &net.IPAddr{IP: net.ParseIP(peerIP)}
+				peerAddress, matched, responseReached := matchMTRResponse(response, peer, target, ipVersion, protocol, identifier, sequence, echoType, echoReply, timeExceeded)
+				if !matched {
+					continue
 				}
-				value := peer.String()
-				if parsed, parseErr := netip.ParseAddr(value); parseErr == nil {
-					value = parsed.Unmap().String()
+				if !reached || responseReached {
+					value := peerAddress.String()
+					address = &value
 				}
-				address = &value
 				received++
 				total += time.Since(started)
-				reached = response.Type == echoReply
+				reached = reached || responseReached
 				break
 			}
 		}
@@ -212,4 +214,98 @@ func traceICMPMTR(ctx context.Context, target netip.Addr) ([]client.MTRHop, erro
 		}
 	}
 	return hops, nil
+}
+
+// matchMTRResponse 校验收到的 ICMP 响应是否属于当前 MTR 请求。
+//
+// 参数:
+//   - response: 已解析的外层 ICMP 响应。
+//   - peer: 响应报文来源地址。
+//   - target: 当前 MTR 目标 IP。
+//   - ipVersion: 当前任务地址族。
+//   - protocol: ICMPv4 或 ICMPv6 协议号。
+//   - identifier: 当前 MTR Echo Identifier。
+//   - sequence: 当前 MTR Echo Sequence。
+//   - echoType: 当前地址族的 Echo Request 类型。
+//   - echoReply: 当前地址族的 Echo Reply 类型。
+//   - timeExceeded: 当前地址族的 Time Exceeded 类型。
+//
+// 返回值: 规范化响应地址、是否匹配当前请求、是否已到达目标。
+func matchMTRResponse(response *icmp.Message, peer net.Addr, target netip.Addr, ipVersion int, protocol int, identifier int, sequence int, echoType icmp.Type, echoReply icmp.Type, timeExceeded icmp.Type) (netip.Addr, bool, bool) {
+	peerAddress, err := parseMTRPeerAddress(peer)
+	if err != nil {
+		return netip.Addr{}, false, false
+	}
+	if response.Type == echoReply {
+		echo, ok := response.Body.(*icmp.Echo)
+		matched := ok && echo.ID == identifier && echo.Seq == sequence && string(echo.Data) == mtrEchoPayload && peerAddress == target
+		return peerAddress, matched, matched
+	}
+	if response.Type != timeExceeded || !matchesMTRTimeExceeded(response.Body, target, ipVersion, protocol, identifier, sequence, echoType) {
+		return netip.Addr{}, false, false
+	}
+	return peerAddress, true, false
+}
+
+// parseMTRPeerAddress 将 ICMP socket 返回的来源地址转换为规范化 IP。
+//
+// 参数:
+//   - peer: ICMP socket 返回的来源地址。
+//
+// 返回值: 规范化且已 Unmap 的 IP；地址无效时返回错误。
+func parseMTRPeerAddress(peer net.Addr) (netip.Addr, error) {
+	value := peer.String()
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	parsed, err := netip.ParseAddr(value)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return parsed.Unmap(), nil
+}
+
+// matchesMTRTimeExceeded 校验 Time Exceeded 内嵌报文是否为当前 Echo 请求。
+//
+// 参数:
+//   - body: Time Exceeded 的 ICMP Body。
+//   - target: 当前 MTR 目标 IP。
+//   - ipVersion: 当前任务地址族。
+//   - protocol: ICMPv4 或 ICMPv6 协议号。
+//   - identifier: 当前 MTR Echo Identifier。
+//   - sequence: 当前 MTR Echo Sequence。
+//   - echoType: 当前地址族的 Echo Request 类型。
+//
+// 返回值: 内嵌原始报文的目标、类型、Identifier、Sequence 及已携带的 Payload 均匹配时返回 true。
+func matchesMTRTimeExceeded(body icmp.MessageBody, target netip.Addr, ipVersion int, protocol int, identifier int, sequence int, echoType icmp.Type) bool {
+	timeExceeded, ok := body.(*icmp.TimeExceeded)
+	if !ok {
+		return false
+	}
+	offset := 0
+	var destination net.IP
+	if ipVersion == 4 {
+		header, err := ipv4.ParseHeader(timeExceeded.Data)
+		if err != nil || header.Protocol != protocol {
+			return false
+		}
+		offset, destination = header.Len, header.Dst
+	} else {
+		header, err := ipv6.ParseHeader(timeExceeded.Data)
+		if err != nil || header.NextHeader != protocol {
+			return false
+		}
+		offset, destination = 40, header.Dst
+	}
+	destinationAddress, ok := netip.AddrFromSlice(destination)
+	if !ok || destinationAddress.Unmap() != target || len(timeExceeded.Data) <= offset {
+		return false
+	}
+	request, err := icmp.ParseMessage(protocol, timeExceeded.Data[offset:])
+	if err != nil || request.Type != echoType {
+		return false
+	}
+	echo, ok := request.Body.(*icmp.Echo)
+	payloadLength := len(echo.Data)
+	return ok && echo.ID == identifier && echo.Seq == sequence && payloadLength <= len(mtrEchoPayload) && string(echo.Data) == mtrEchoPayload[:payloadLength]
 }
