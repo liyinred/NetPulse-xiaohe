@@ -83,7 +83,7 @@ class OnDemandNodeTask(Base):
         nullable=False,
     )
     probe_device_id: Mapped[int] = mapped_column(Integer, ForeignKey("devices.id"), nullable=False)
-    source_ip_id: Mapped[int] = mapped_column(Integer, ForeignKey("ip_dict.id"), nullable=False)
+    source_ip_id: Mapped[int] = mapped_column(Integer, nullable=False)
     probe_modes: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[int] = mapped_column(Integer, nullable=False)
     result_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

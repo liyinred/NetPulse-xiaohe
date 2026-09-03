@@ -95,6 +95,44 @@ type onDemandTaskResponse struct {
 	Data *OnDemandTask `json:"data"`
 }
 
+// MTRTask 保存中央服务下发的单方向双向 MTR 任务。
+type MTRTask struct {
+	MTRTaskID  int64  `json:"mtr_task_id"`
+	Direction  string `json:"direction"`
+	LeaseToken string `json:"lease_token"`
+	SourceIP   string `json:"source_ip"`
+	TargetIP   string `json:"target_ip"`
+	IPVersion  int    `json:"ip_version"`
+}
+
+type mtrTaskResponse struct {
+	Data *MTRTask `json:"data"`
+}
+
+// MTRHop 保存一个 TTL 的 MTR 统计结果。
+type MTRHop struct {
+	TTL              int     `json:"ttl"`
+	Address          *string `json:"address"`
+	Sent             int     `json:"sent"`
+	Received         int     `json:"received"`
+	LossRate         int     `json:"lossRate"`
+	AverageLatencyMS *int    `json:"averageLatencyMs"`
+}
+
+// MTRResultRequest 保存一个方向的 MTR 上报内容。
+type MTRResultRequest struct {
+	MTRTaskID  int64    `json:"mtr_task_id"`
+	Direction  string   `json:"direction"`
+	LeaseToken string   `json:"lease_token"`
+	DeviceID   string   `json:"device_id"`
+	SourceIP   string   `json:"source_ip"`
+	TargetIP   string   `json:"target_ip"`
+	StartedAt  int64    `json:"started_at"`
+	FinishedAt int64    `json:"finished_at"`
+	Hops       []MTRHop `json:"hops"`
+	ErrorCode  *string  `json:"error_code"`
+}
+
 // OnDemandResults 保存按需任务的 ICMP、TCP 及可选 UDP 汇总结果。
 type OnDemandResults struct {
 	ICMP ProtocolResult  `json:"icmp"`
@@ -216,6 +254,37 @@ func (backend *Backend) SubmitOnDemandResult(
 	result OnDemandResultRequest,
 ) error {
 	return backend.submitProbePayload(ctx, "/probes/on-demand/results", result)
+}
+
+// PollMTRTask 长轮询并领取当前设备的一条 MTR 方向任务。
+//
+// 参数:
+//   - ctx: 控制长轮询取消的 Context。
+//   - deviceID: Agent 设备标识。
+//
+// 返回值: 领取到的方向任务；无任务时返回 nil，请求失败时返回错误。
+func (backend *Backend) PollMTRTask(ctx context.Context, deviceID string) (*MTRTask, error) {
+	endpoint := backend.baseURL + "/probes/mtr/tasks?device_id=" + url.QueryEscape(deviceID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建 MTR 任务轮询请求失败: %w", err)
+	}
+	var response mtrTaskResponse
+	if err := executeJSONRequest(backend.onDemandClient, request, &response, backend.errorOutput); err != nil {
+		return nil, fmt.Errorf("轮询 MTR 任务失败: %w", err)
+	}
+	return response.Data, nil
+}
+
+// SubmitMTRResult 幂等上报一个方向的 MTR 结果。
+//
+// 参数:
+//   - ctx: 控制请求取消的 Context。
+//   - result: 单方向的租约、地址快照与逐跳结果。
+//
+// 返回值: 中央服务接受请求时返回 nil，否则返回错误。
+func (backend *Backend) SubmitMTRResult(ctx context.Context, result MTRResultRequest) error {
+	return backend.submitProbePayload(ctx, "/probes/mtr/results", result)
 }
 
 // submitProbePayload 提交探测 JSON 并校验接受标志。

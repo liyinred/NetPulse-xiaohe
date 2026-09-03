@@ -48,9 +48,9 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	defer logFile.Close()
 	firewallBackend, err := configureLinuxFirewall(ctx)
 	if err != nil {
-		return err
+		fmt.Fprintf(output, "自动配置防火墙失败，Agent 将继续运行: %v\n", err)
 	}
-	if firewallBackend != "" {
+	if firewallBackend != "" && err == nil {
 		fmt.Fprintf(
 			output,
 			"Linux %s 已放行 UDP 33434 和 TCP 80 的入站及出站流量。\n",
@@ -131,6 +131,12 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		sourceIPv6,
 		output,
 	)
+	mtrRunner := probe.NewMTRRunner(backend, deviceID, sourceIPv4, sourceIPv6, output)
+	go func() {
+		if runnerErr := mtrRunner.Run(ctx); runnerErr != nil && ctx.Err() == nil {
+			fmt.Fprintf(output, "双向 MTR 轮询已停止: %v\n", runnerErr)
+		}
+	}()
 
 	confirmed, err := confirmContinuousProbe(input, output)
 	if err != nil {

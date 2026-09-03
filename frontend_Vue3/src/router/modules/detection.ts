@@ -15,6 +15,16 @@ export const detectionRoutes: AppRouteRecord[] = [
     }
   },
   {
+    path: '/bidirectional-mtr',
+    name: 'BidirectionalMTR',
+    component: '/detection/bidirectional-mtr',
+    meta: {
+      title: '双向MTR',
+      icon: 'ri:route-line',
+      keepAlive: true
+    }
+  },
+  {
     path: '/external-network-detection',
     name: 'ExternalNetworkDetection',
     component: '/detection/blank',

@@ -67,7 +67,7 @@ func configureLinuxFirewall(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("未检测到可配置的 firewalld、UFW、nftables 或 iptables")
 }
 
-// configureFirewalld 为默认 Zone 添加入站端口，并显式允许 IPv4/IPv6 出站流量。
+// configureFirewalld 为默认 Zone 添加入站探测端口。
 //
 // 参数:
 //   - ctx: 控制 firewall-cmd 执行的 Context。
@@ -90,15 +90,6 @@ func configureFirewalld(ctx context.Context) error {
 			"--add-port="+rule.port+"/"+rule.protocol,
 		); err != nil {
 			return err
-		}
-		for _, family := range []string{"ipv4", "ipv6"} {
-			if err := runIdempotentFirewalld(
-				ctx,
-				"--direct", "--add-rule", family, "filter", "OUTPUT", "0",
-				"-p", rule.protocol, "--dport", rule.port, "-j", "ACCEPT",
-			); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

@@ -3,6 +3,8 @@
 from fastapi import APIRouter
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.bidirectional_mtr import router as bidirectional_mtr_router
+from app.api.routes.bidirectional_mtr import web_router as bidirectional_mtr_web_router
 from app.api.routes.device import router as device_router
 from app.api.routes.ip_management import router as ip_management_router
 from app.api.routes.on_demand_probe import router as on_demand_probe_router
@@ -18,6 +20,8 @@ from app.api.routes.wechat_qrcode import router as qrcode_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
+api_router.include_router(bidirectional_mtr_router)
+api_router.include_router(bidirectional_mtr_web_router)
 api_router.include_router(callback_router)
 api_router.include_router(qrcode_router)
 api_router.include_router(device_router)

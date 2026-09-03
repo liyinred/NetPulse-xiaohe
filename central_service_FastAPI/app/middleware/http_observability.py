@@ -17,6 +17,7 @@ EXCLUDED_DURATION_PATHS = {
     "/metrics",
     "/openapi.json",
     "/probes/on-demand/tasks",
+    "/probes/mtr/tasks",
     "/redoc",
 }
 

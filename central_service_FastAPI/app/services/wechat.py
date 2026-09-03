@@ -15,7 +15,7 @@ from app.core.config import WECHAT_APP_ID, WECHAT_APP_SECRET
 from app.services.http_observability import record_outbound_response_error
 
 
-WECHAT_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
+WECHAT_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/stable_token"
 WECHAT_QRCODE_URL = "https://api.weixin.qq.com/cgi-bin/qrcode/create"
 WECHAT_QRCODE_IMAGE_URL = "https://mp.weixin.qq.com/cgi-bin/showqrcode"
 WECHAT_TEMPLATE_MESSAGE_URL = (
@@ -146,12 +146,13 @@ async def get_access_token(client: httpx.AsyncClient) -> str:
 
         validate_wechat_credentials()
         try:
-            response = await client.get(
+            response = await client.post(
                 WECHAT_ACCESS_TOKEN_URL,
-                params={
+                json={
                     "grant_type": "client_credential",
                     "appid": WECHAT_APP_ID,
                     "secret": WECHAT_APP_SECRET,
+                    "force_refresh": False,
                 },
             )
         except httpx.RequestError as exc:

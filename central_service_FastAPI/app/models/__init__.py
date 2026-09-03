@@ -4,6 +4,7 @@ from app.models.alert_event import AlertEvent
 from app.models.device import Device
 from app.models.ip_dict import IPDict
 from app.models.on_demand_probe import OnDemandExecution, OnDemandNodeTask, ProbeQuery
+from app.models.bidirectional_mtr import BidirectionalMTRTask, BidirectionalMTRDirection
 from app.models.probe_state import ICMPProbeState, TCPProbeState, UDPProbeState
 from app.models.user import User
 
@@ -15,6 +16,8 @@ __all__ = [
     "OnDemandExecution",
     "OnDemandNodeTask",
     "ProbeQuery",
+    "BidirectionalMTRTask",
+    "BidirectionalMTRDirection",
     "TCPProbeState",
     "UDPProbeState",
     "User",

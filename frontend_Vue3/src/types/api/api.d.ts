@@ -241,6 +241,64 @@ declare namespace Api {
         crossProvinceResults: OnDemandNodeResult[]
       }
     }
+
+    /** 双向 MTR 方向或主任务状态 */
+    type MTRStatus = 'queued' | 'running' | 'completed' | 'partial_completed' | 'failed'
+
+    /** 双向 MTR 可选择的公网 IP */
+    interface MTRDeviceIP {
+      id: number
+      ip: string
+      ipVersion: 4 | 6
+    }
+
+    /** 双向 MTR 可选择的在线节点 */
+    interface MTRDevice {
+      id: number
+      nodeName: string
+      ips: MTRDeviceIP[]
+    }
+
+    /** 双向 MTR 创建请求 */
+    interface MTRCreateParams {
+      sourceDeviceId: number
+      sourceIpId: number
+      targetDeviceId: number
+      targetIpId: number
+    }
+
+    /** 双向 MTR 创建结果 */
+    interface MTRCreated {
+      mtrTaskId: number
+      status: MTRStatus
+    }
+
+    /** 单个 MTR 跳点 */
+    interface MTRHop {
+      ttl: number
+      address: string | null
+      sent: number
+      received: number
+      lossRate: number
+      averageLatencyMs: number | null
+    }
+
+    /** 双向 MTR 单方向结果 */
+    interface MTRDirectionResult {
+      direction: 'A_TO_B' | 'B_TO_A'
+      sourceIp: string
+      targetIp: string
+      status: MTRStatus
+      errorCode: string | null
+      hops: MTRHop[]
+    }
+
+    /** 双向 MTR 主任务结果 */
+    interface MTRTaskResult {
+      mtrTaskId: number
+      status: MTRStatus
+      directions: MTRDirectionResult[]
+    }
   }
 
   /** 系统管理类型 */

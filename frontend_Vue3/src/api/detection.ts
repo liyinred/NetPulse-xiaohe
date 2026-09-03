@@ -56,3 +56,36 @@ export function fetchGetOnDemandProbe(queryId: number) {
     url: `/api/on-demand-probes/${queryId}`
   })
 }
+
+/**
+ * 获取当前用户可用于双向 MTR 的在线设备及其公网 IP。
+ * @returns 在线设备列表。
+ */
+export function fetchGetMTRDevices() {
+  return request.get<Api.Detection.MTRDevice[]>({
+    url: '/api/bidirectional-mtr/devices'
+  })
+}
+
+/**
+ * 创建两个在线设备之间的双向 MTR 任务。
+ * @param params 两端设备及各自选择的公网 IP。
+ * @returns 新建任务标识和状态。
+ */
+export function fetchCreateMTRTask(params: Api.Detection.MTRCreateParams) {
+  return request.post<Api.Detection.MTRCreated>({
+    url: '/api/bidirectional-mtr',
+    params
+  })
+}
+
+/**
+ * 获取双向 MTR 任务的两个方向路径与执行状态。
+ * @param taskId 双向 MTR 主任务主键。
+ * @returns 聚合后的方向结果。
+ */
+export function fetchGetMTRTask(taskId: number) {
+  return request.get<Api.Detection.MTRTaskResult>({
+    url: `/api/bidirectional-mtr/${taskId}`
+  })
+}

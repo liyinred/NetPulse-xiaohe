@@ -165,7 +165,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `id`              | `INT`   | `PK`, `AUTO_INCREMENT`        | 节点任务及结果幂等键                                           |
 | `execution_id`    | `INT`   | `FK → on_demand_executions.id` | 所属执行                                                       |
 | `probe_device_id` | `INT`   | `FK → devices.id`              | 执行探测的 Agent 设备内部主键                                  |
-| `source_ip_id`    | `INT`   | `FK → ip_dict.id`              | 选定的节点源 IP                                                |
+| `source_ip_id`    | `INT`   | -                               | 选定节点源 IP 的内部主键快照，不建立外键                        |
 | `probe_modes`     | `INT`   | `NOT NULL`, `CHECK`           | 分类集合：`1`=异网、`2`=跨省、`3`=两者                   |
 | `status`          | `INT`   | `NOT NULL`, `CHECK`           | `1`=待领取、`2`=执行中、`3`=完成、`4`=超时、`5`=失败 |
 | `result_data`     | `JSON`  | -                                 | ICMP、TCP 及可选 UDP 的丢包率和平均延迟                         |
@@ -173,3 +173,33 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `finished_at`     | `INT64` | -                                 | 节点任务完成时间                                               |
 
 `execution_id + probe_device_id` 必须唯一。任务完成时在同一事务内写入 `result_data` 并将状态改为完成；失败或超时时为空。`result_data` 中 `icmp`、`tcp` 必填，`udp` 在目标 Agent 不在线时为 `null`；非空协议结果包含整数千分比 `loss_rate` 和整数毫秒 `average_latency_ms`。
+
+### 7.11 `bidirectional_mtr_tasks`
+
+保存用户创建的一次双向 MTR 主任务。
+
+| 字段 | 数据类型 | 键 | 说明 |
+| --- | --- | --- | --- |
+| `id` | `INT` | `PK`, `AUTO_INCREMENT` | 主任务内部主键，也是两个方向共用的 `mtr_task_id` |
+| `user_id` | `INT` | `FK → users.id`, `INDEX` | 创建任务的用户 |
+| `status` | `INT` | `NOT NULL`, `CHECK` | `1`=排队、`2`=执行、`3`=完成、`4`=部分完成、`5`=失败 |
+| `created_at` / `started_at` / `finished_at` | `INT64` | - | 创建、开始及进入终态时间 |
+
+### 7.12 `bidirectional_mtr_directions`
+
+保存 `A_TO_B`、`B_TO_A` 两条独立方向任务的端点 IP 引用、租约和逐跳结果。
+
+| 字段 | 数据类型 | 键 | 说明 |
+| --- | --- | --- | --- |
+| `id` | `INT` | `PK`, `AUTO_INCREMENT` | 方向任务内部主键 |
+| `mtr_task_id` | `INT` | `FK → bidirectional_mtr_tasks.id` | 所属双向 MTR 主任务 |
+| `direction` | `VARCHAR(8)` | `UNIQUE(mtr_task_id, direction)` | `A_TO_B` 或 `B_TO_A` |
+| `source_ip_id` / `target_ip_id` | `INT` | - | 创建时选定的 IP 内部主键；地址和关联设备通过 `ip_dict` 查询，不建立外键 |
+| `ip_version` | `INT` | `NOT NULL` | 地址族：`4` 或 `6` |
+| `status` | `INT` | `NOT NULL`, `CHECK` | `1`=待领取、`2`=执行中、`3`=完成、`4`=部分完成、`5`=失败 |
+| `lease_token` | `VARCHAR(64)` | - | 领取时签发的随机执行租约；上报结果必须匹配 |
+| `result_data` | `JSON` | - | 每个 TTL 的地址、收发计数、丢包率及平均延迟 |
+| `error_code` | `VARCHAR(64)` | - | 执行或端点校验失败原因 |
+| `started_at` / `finished_at` | `INT64` | - | 方向领取和结束时间 |
+
+任务领取与结果上报均通过 IP 主键关联 `ip_dict` 校验设备归属、公开状态和在线状态；关联 IP 不存在或失效时，方向任务不再下发。
