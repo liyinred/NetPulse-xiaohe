@@ -113,7 +113,7 @@ class MTRAgentTaskResponse(BaseModel):
 
 
 class MTRResultRequest(BaseModel):
-    """定义 Agent 对单方向 MTR 的幂等结果上报。"""
+    """定义 Agent 对单方向 MTR 的幂等进度或最终结果上报。"""
 
     mtr_task_id: int = Field(gt=0)
     direction: Literal["A_TO_B", "B_TO_A"]
@@ -125,6 +125,7 @@ class MTRResultRequest(BaseModel):
     finished_at: int = Field(gt=0)
     hops: list[MTRHop] = Field(max_length=32)
     error_code: str | None = Field(default=None, max_length=64)
+    is_final: bool = True
 
 
 class MTRAcceptedResponse(BaseModel):

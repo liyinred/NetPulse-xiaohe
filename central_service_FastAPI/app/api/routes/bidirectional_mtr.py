@@ -87,10 +87,10 @@ async def poll_mtr_task(device_id: str = Query(min_length=1, max_length=64)) -> 
 
 @router.post("/results", response_model=MTRAcceptedResponse)
 def receive_mtr_result(request: MTRResultRequest) -> MTRAcceptedResponse:
-    """接收并幂等保存 Agent 的单方向 MTR 逐跳结果。
+    """接收并幂等保存 Agent 的单方向 MTR 进度或最终结果。
 
     参数:
-        request: 包含方向租约、地址快照和逐跳统计的上报内容。
+        request: 包含方向租约、地址快照、逐跳统计和结束标志的上报内容。
     返回:
         中央服务接受成功标志。
     """

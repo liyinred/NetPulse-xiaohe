@@ -16,7 +16,7 @@ from app.services.device import DEVICE_ONLINE_SECONDS
 from app.services.network import format_probe_node_name
 
 
-MTR_DEADLINE_SECONDS = 20
+MTR_DEADLINE_SECONDS = 30
 STATUS_NAMES = {1: "queued", 2: "running", 3: "completed", 4: "partial_completed", 5: "failed"}
 
 
@@ -114,7 +114,7 @@ def claim_mtr_task(device_id: str) -> MTRAgentTask | None:
 
 
 def save_mtr_result(request: MTRResultRequest) -> None:
-    """锁定主任务，校验租约和地址快照后幂等保存单方向结果。
+    """锁定主任务，校验租约和地址快照后幂等保存单方向进度或结果。
 
     参数:
         request: Agent 上报的方向任务、租约、地址和逐跳结果。
@@ -130,7 +130,7 @@ def save_mtr_result(request: MTRResultRequest) -> None:
         direction = session.scalar(select(BidirectionalMTRDirection).where(BidirectionalMTRDirection.mtr_task_id == request.mtr_task_id, BidirectionalMTRDirection.direction == request.direction).with_for_update())
         if direction is None:
             raise LookupError("MTR 方向任务不存在")
-        if direction.status == 3 and direction.result_data == payload and direction.error_code == request.error_code:
+        if request.is_final and direction.status == 3 and direction.result_data == payload and direction.error_code == request.error_code:
             return
         if direction.status != 2 or direction.lease_token != request.lease_token:
             raise ValueError("MTR 方向任务租约无效或已结束")
@@ -143,7 +143,14 @@ def save_mtr_result(request: MTRResultRequest) -> None:
         )
         if source_device is None or target_ip is None or source_device.device_id != request.device_id or source_ip.ip != request.source_ip.compressed or target_ip.ip != request.target_ip.compressed or request.finished_at < request.started_at:
             raise PermissionError("MTR 结果与任务地址快照不匹配")
+        current_payload = direction.result_data or []
+        if len(payload) < len(current_payload) or payload[:len(current_payload)] != current_payload:
+            raise ValueError("MTR 逐跳结果不能回退或改写")
         direction.result_data = payload
+        if not request.is_final:
+            if request.error_code is not None:
+                raise ValueError("MTR 进度上报不能包含错误码")
+            return
         direction.error_code = request.error_code
         direction.status = 5 if request.error_code else 3
         direction.finished_at = now

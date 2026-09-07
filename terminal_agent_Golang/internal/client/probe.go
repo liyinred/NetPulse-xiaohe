@@ -121,7 +121,7 @@ type MTRHop struct {
 	AverageLatencyMS *int    `json:"averageLatencyMs"`
 }
 
-// MTRResultRequest 保存一个方向的 MTR 上报内容。
+// MTRResultRequest 保存一个方向的 MTR 进度或最终结果上报内容。
 type MTRResultRequest struct {
 	MTRTaskID  int64    `json:"mtr_task_id"`
 	Direction  string   `json:"direction"`
@@ -133,6 +133,7 @@ type MTRResultRequest struct {
 	FinishedAt int64    `json:"finished_at"`
 	Hops       []MTRHop `json:"hops"`
 	ErrorCode  *string  `json:"error_code"`
+	IsFinal    bool     `json:"is_final"`
 }
 
 // OnDemandResults 保存按需任务的 ICMP、TCP 及可选 UDP 汇总结果。
@@ -278,11 +279,11 @@ func (backend *Backend) PollMTRTask(ctx context.Context, deviceID string) (*MTRT
 	return response.Data, nil
 }
 
-// SubmitMTRResult 幂等上报一个方向的 MTR 结果。
+// SubmitMTRResult 幂等上报一个方向的 MTR 进度或最终结果。
 //
 // 参数:
 //   - ctx: 控制请求取消的 Context。
-//   - result: 单方向的租约、地址快照与逐跳结果。
+//   - result: 单方向的租约、地址快照、逐跳结果和结束标志。
 //
 // 返回值: 中央服务接受请求时返回 nil，否则返回错误。
 func (backend *Backend) SubmitMTRResult(ctx context.Context, result MTRResultRequest) error {

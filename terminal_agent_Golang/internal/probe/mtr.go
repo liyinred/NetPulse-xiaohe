@@ -80,7 +80,7 @@ func (runner *MTRRunner) recoverTaskPanic(taskID int64) {
 	}
 }
 
-// execute 校验地址快照、执行 ICMP MTR 并上报方向结果。
+// execute 校验地址快照、执行 ICMP MTR、逐跳上报进度并提交最终结果。
 //
 // 参数:
 //   - ctx: 控制执行和上报取消的 Context。
@@ -109,14 +109,21 @@ func (runner *MTRRunner) execute(ctx context.Context, task client.MTRTask) {
 		return
 	}
 	started := time.Now()
-	hops, traceErr := traceICMPMTR(ctx, target)
+	submitResult := func(hops []client.MTRHop, isFinal bool, errorCode *string) error {
+		request := client.MTRResultRequest{MTRTaskID: task.MTRTaskID, Direction: task.Direction, LeaseToken: task.LeaseToken, DeviceID: runner.deviceID, SourceIP: source.String(), TargetIP: target.String(), StartedAt: started.Unix(), FinishedAt: time.Now().Unix(), Hops: hops, ErrorCode: errorCode, IsFinal: isFinal}
+		return runner.backend.SubmitMTRResult(ctx, request)
+	}
+	hops, traceErr := traceICMPMTR(ctx, target, func(currentHops []client.MTRHop) {
+		if err := submitResult(currentHops, false, nil); err != nil {
+			fmt.Fprintf(runner.output, "双向 MTR 任务 %d 逐跳进度上报失败: %v\n", task.MTRTaskID, err)
+		}
+	})
 	var errorCode *string
 	if traceErr != nil {
 		value := "MTR_EXECUTION_FAILED"
 		errorCode = &value
 	}
-	request := client.MTRResultRequest{MTRTaskID: task.MTRTaskID, Direction: task.Direction, LeaseToken: task.LeaseToken, DeviceID: runner.deviceID, SourceIP: source.String(), TargetIP: target.String(), StartedAt: started.Unix(), FinishedAt: time.Now().Unix(), Hops: hops, ErrorCode: errorCode}
-	if err := runner.backend.SubmitMTRResult(ctx, request); err != nil {
+	if err := submitResult(hops, true, errorCode); err != nil {
 		fmt.Fprintf(runner.output, "双向 MTR 任务 %d 上报失败: %v\n", task.MTRTaskID, err)
 	}
 }
@@ -126,9 +133,10 @@ func (runner *MTRRunner) execute(ctx context.Context, task client.MTRTask) {
 // 参数:
 //   - ctx: 控制探测取消的 Context。
 //   - target: 中央服务下发且已校验地址族的目标 IP。
+//   - onProgress: 每完成一个 TTL 后接收当前累计逐跳结果的回调。
 //
 // 返回值: 至多 32 跳、每跳三次的 ICMP 统计；初始化失败时返回错误。
-func traceICMPMTR(ctx context.Context, target netip.Addr) ([]client.MTRHop, error) {
+func traceICMPMTR(ctx context.Context, target netip.Addr, onProgress func([]client.MTRHop)) ([]client.MTRHop, error) {
 	if !target.Is4() && !target.Is6() {
 		return nil, fmt.Errorf("MTR 目标 IP 地址族无效")
 	}
@@ -209,6 +217,7 @@ func traceICMPMTR(ctx context.Context, target netip.Addr) ([]client.MTRHop, erro
 			average = &value
 		}
 		hops = append(hops, client.MTRHop{TTL: ttl, Address: address, Sent: 3, Received: received, LossRate: (3 - received) * 1000 / 3, AverageLatencyMS: average})
+		onProgress(hops)
 		if reached {
 			break
 		}

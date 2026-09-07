@@ -57,7 +57,7 @@
           </ElButton>
         </ElForm>
         <p class="mt-1 text-xs text-g-600">
-          自动调用在线的异网与跨省IP主机，并行完成 ICMP、TCP 80、UDP 33434 探测
+          自动调用在线的异网与跨省IP主机，并行完成 ICMP、TCP、UDP 探测
         </p>
       </div>
 
