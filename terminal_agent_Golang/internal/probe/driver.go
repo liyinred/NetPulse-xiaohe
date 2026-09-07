@@ -18,9 +18,9 @@ import (
 
 const (
 	probeTimeout     = time.Duration(maximumAverageLatencyMS) * time.Millisecond
-	tcpResponderPort = 33434
+	tcpResponderPort = 23434
 	tcpPort          = 80
-	udpPort          = 33434
+	udpPort          = 23435
 )
 
 var errICMPDriverClosed = errors.New("ICMP Driver 已关闭")

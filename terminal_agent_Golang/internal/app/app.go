@@ -54,7 +54,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	if firewallBackend != "" && err == nil {
 		fmt.Fprintf(
 			output,
-			"  防火墙：已通过 Linux %s 放行 UDP 33434 和 TCP 80、33434 的入站及出站流量\n",
+			"  防火墙：已通过 Linux %s 放行 UDP 23435 和 TCP 80、23434 的入站及出站流量\n",
 			firewallBackend,
 		)
 	}

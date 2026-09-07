@@ -14,7 +14,7 @@ type TCPResponder struct {
 	closeErr  error
 }
 
-// StartTCPResponder 启动 TCP 33434 回复监听。
+// StartTCPResponder 启动 TCP 23434 回复监听。
 //
 // 参数:
 //   - ctx: 控制监听退出的 Context。

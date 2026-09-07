@@ -9,7 +9,7 @@ import (
 
 const udpProbePayload = "netpulse"
 
-// UDPResponder 在 UDP 33434 端口接收并回复合法探测报文。
+// UDPResponder 在 UDP 23435 端口接收并回复合法探测报文。
 type UDPResponder struct {
 	connections []*net.UDPConn
 	closeOnce   sync.Once
