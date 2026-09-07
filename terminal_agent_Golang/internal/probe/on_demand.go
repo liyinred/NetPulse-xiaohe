@@ -109,7 +109,7 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 			stats := runOnDemandProtocol(
 				ctx, startedAt, driver, target, protocol,
 				task.ProbeCount, time.Duration(task.IntervalMS)*time.Millisecond,
-				time.Duration(task.TimeoutMS)*time.Millisecond,
+				time.Duration(task.TimeoutMS)*time.Millisecond, task.TCPResponderEnabled,
 			)
 			mutex.Lock()
 			results[protocol] = summarize(stats)
@@ -200,6 +200,7 @@ func (runner *OnDemandRunner) validateTask(
 //   - count: 固定探测次数。
 //   - interval: 固定发送间隔。
 //   - timeout: 单次探测超时。
+//   - tcpResponderEnabled: 是否使用在线 Agent 的 TCP 回复端口。
 //
 // 返回值: 当前协议的尝试次数、成功次数和 RTT 总和。
 func runOnDemandProtocol(
@@ -211,6 +212,7 @@ func runOnDemandProtocol(
 	count int,
 	interval time.Duration,
 	timeout time.Duration,
+	tcpResponderEnabled bool,
 ) protocolStats {
 	stats := protocolStats{}
 	var mutex sync.Mutex
@@ -224,7 +226,7 @@ func runOnDemandProtocol(
 			defer waitGroup.Done()
 			attemptContext, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
-			rtt, err := probeOnce(attemptContext, driver, target, protocol)
+			rtt, err := probeOnce(attemptContext, driver, target, protocol, tcpResponderEnabled)
 			mutex.Lock()
 			defer mutex.Unlock()
 			stats.attempted++

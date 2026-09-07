@@ -29,6 +29,7 @@ type nftablesRuleset struct {
 var firewallPorts = []firewallPort{
 	{protocol: "udp", port: "33434"},
 	{protocol: "tcp", port: "80"},
+	{protocol: "tcp", port: "33434"},
 }
 
 // configureLinuxFirewall 在 Linux 上选择可用防火墙并放行探测端口。

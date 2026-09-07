@@ -70,7 +70,7 @@
       </ElDescriptions>
 
       <ElTable
-        class="mt-4"
+        class="probe-report-table mt-4"
         :data="reportData?.rows ?? []"
         border
         empty-text="当前时间窗口暂无探测结果"
@@ -144,7 +144,12 @@
         </h2>
         <ElTag type="info" effect="light">展示格式：全天 / 晚高峰（20:00-22:00）</ElTag>
       </div>
-      <ElTable :data="previousDayReportRows" border empty-text="昨日暂无探测结果">
+      <ElTable
+        class="probe-report-table"
+        :data="previousDayReportRows"
+        border
+        empty-text="昨日暂无探测结果"
+      >
         <ElTableColumn prop="provinceName" label="省份" />
         <ElTableColumn prop="ispName" label="运营商" />
         <ElTableColumn label="ICMP" align="center">
@@ -592,3 +597,9 @@
     void loadNodes()
   })
 </script>
+
+<style scoped>
+  .probe-report-table {
+    font-size: var(--el-font-size-small);
+  }
+</style>

@@ -90,6 +90,7 @@ class OnDemandTaskData(BaseModel):
     source_ip: IPv4Address | IPv6Address
     target_ip: IPv4Address | IPv6Address
     ip_version: Literal[4, 6]
+    tcp_responder_enabled: bool = False
     udp_enabled: bool = False
     probe_count: Literal[10] = 10
     interval_ms: Literal[100] = 100

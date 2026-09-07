@@ -17,6 +17,7 @@ class ProbeTarget(BaseModel):
     public_ip: IPv4Address | IPv6Address
     isp: int
     province: int
+    tcp_responder_enabled: bool = False
     udp_enabled: bool = False
 
 

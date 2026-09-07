@@ -4,4 +4,4 @@
 - `docs`文件夹: 项目说明文档
 - `Python`环境: `pcdn-tx` Conda环境
 - 数据库迁移: `alembic`工具, 对应路径为 `central_service_FastAPI/alembic`
-- 不要开启Vue3端口，不要执行`build`操作
+- 不开启Vue3端口，不执行`build`操作

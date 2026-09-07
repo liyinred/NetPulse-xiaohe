@@ -199,7 +199,7 @@ def _create_execution(
 
 
 def claim_on_demand_task(device_id: str) -> OnDemandTaskData | None:
-    """刷新设备心跳并领取携带目标 UDP 在线能力的按需任务。
+    """刷新设备心跳并领取携带目标 TCP 回复模式和 UDP 在线能力的按需任务。
 
     参数:
         device_id: Agent 本地设备标识。
@@ -266,6 +266,7 @@ def claim_on_demand_task(device_id: str) -> OnDemandTaskData | None:
                 source_ip=ip_address(source_ip.ip),
                 target_ip=ip_address(execution.target_ip),
                 ip_version=execution.ip_version,
+                tcp_responder_enabled=udp_enabled,
                 udp_enabled=udp_enabled,
             )
         return None

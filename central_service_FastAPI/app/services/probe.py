@@ -43,6 +43,7 @@ from app.services.device import DEVICE_ONLINE_SECONDS, _upsert_ip_record
 from app.services.network import (
     ISP_NAMES,
     IPLookupError,
+    NetworkInfo,
     PROVINCE_NAMES,
     format_probe_node_label,
     format_probe_node_name,
@@ -512,13 +513,17 @@ def _load_targets(
         mode: cross_isp 或 cross_province。
         online_device_ids: 当前在线的设备内部主键集合。
     返回:
-        按 IP 记录主键排序且携带 UDP 可用状态的目标列表。
+        按 IP 记录主键排序且携带 TCP 回复模式和 UDP 可用状态的目标列表。
     """
     return [
         ProbeTarget(
             public_ip=ip_address(row.ip),
             isp=row.isp,
             province=row.province,
+            tcp_responder_enabled=(
+                device_id in online_device_ids
+                and row.device_related_id in online_device_ids
+            ),
             udp_enabled=row.device_related_id in online_device_ids,
         )
         for row in rows
@@ -529,6 +534,35 @@ def _load_targets(
         and _is_valid_target_ip(row.ip, version)
         and _matches_mode(source, row, mode)
     ]
+
+
+def _load_cached_network_info(
+    public_ip: IPv4Address | IPv6Address,
+) -> NetworkInfo | None:
+    """从 ip_dict 读取可复用的 IP 归属信息。
+
+    参数:
+        public_ip: 要查询缓存的公网 IPv4 或 IPv6 地址。
+    返回:
+        IP 版本及归属字段有效时返回缓存信息，否则返回 None。
+    """
+    with SessionLocal() as session:
+        record = session.scalar(select(IPDict).where(IPDict.ip == str(public_ip)))
+        if (
+            record is None
+            or record.ip_version != public_ip.version
+            or record.isp not in ISP_NAMES
+            or record.province not in PROVINCE_NAMES
+        ):
+            return None
+        return NetworkInfo(
+            public_ip=public_ip,
+            isp=record.isp,
+            province=record.province,
+            isp_name=ISP_NAMES[record.isp],
+            province_name=PROVINCE_NAMES[record.province],
+            city_name=record.city or "",
+        )
 
 
 async def discover_probe_targets(
@@ -544,16 +578,20 @@ async def discover_probe_targets(
     _validate_public_source(request.source_ipv4, 4)
     if request.source_ipv6 is not None:
         _validate_public_source(request.source_ipv6, 6)
-    ipv4_network_info = await lookup_network(request.source_ipv4)
+    ipv4_network_info = _load_cached_network_info(request.source_ipv4)
+    if ipv4_network_info is None:
+        ipv4_network_info = await lookup_network(request.source_ipv4)
     ipv6_network_info = None
     if request.source_ipv6 is not None:
-        try:
-            ipv6_network_info = await lookup_network(request.source_ipv6)
-        except IPLookupError as exc:
-            logger.warning(
-                "IPv6 归属查询失败，本次仅返回 IPv4 探测目标: %s",
-                exc,
-            )
+        ipv6_network_info = _load_cached_network_info(request.source_ipv6)
+        if ipv6_network_info is None:
+            try:
+                ipv6_network_info = await lookup_network(request.source_ipv6)
+            except IPLookupError as exc:
+                logger.warning(
+                    "IPv6 归属查询失败，本次仅返回 IPv4 探测目标: %s",
+                    exc,
+                )
     current_time = int(time())
     with SessionLocal.begin() as session:
         device = _get_device(session, request.device_id)

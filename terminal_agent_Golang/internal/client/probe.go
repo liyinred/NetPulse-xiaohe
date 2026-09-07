@@ -11,10 +11,11 @@ import (
 
 // ProbeTarget 保存中央服务下发的单个探测目标。
 type ProbeTarget struct {
-	PublicIP   string `json:"public_ip"`
-	ISP        int    `json:"isp"`
-	Province   int    `json:"province"`
-	UDPEnabled bool   `json:"udp_enabled"`
+	PublicIP            string `json:"public_ip"`
+	ISP                 int    `json:"isp"`
+	Province            int    `json:"province"`
+	TCPResponderEnabled bool   `json:"tcp_responder_enabled"`
+	UDPEnabled          bool   `json:"udp_enabled"`
 }
 
 // ProbeTargets 保存按分类和 IP 版本拆分的持续探测目标。
@@ -81,14 +82,15 @@ type probeAcceptedResponse struct {
 
 // OnDemandTask 保存中央服务下发的临时 IP 按需探测任务。
 type OnDemandTask struct {
-	ID         int64  `json:"id"`
-	SourceIP   string `json:"source_ip"`
-	TargetIP   string `json:"target_ip"`
-	IPVersion  int    `json:"ip_version"`
-	UDPEnabled bool   `json:"udp_enabled"`
-	ProbeCount int    `json:"probe_count"`
-	IntervalMS int    `json:"interval_ms"`
-	TimeoutMS  int    `json:"timeout_ms"`
+	ID                  int64  `json:"id"`
+	SourceIP            string `json:"source_ip"`
+	TargetIP            string `json:"target_ip"`
+	IPVersion           int    `json:"ip_version"`
+	TCPResponderEnabled bool   `json:"tcp_responder_enabled"`
+	UDPEnabled          bool   `json:"udp_enabled"`
+	ProbeCount          int    `json:"probe_count"`
+	IntervalMS          int    `json:"interval_ms"`
+	TimeoutMS           int    `json:"timeout_ms"`
 }
 
 type onDemandTaskResponse struct {

@@ -452,6 +452,7 @@ func (engine *Engine) runLogicalTarget(
 			source.driver,
 			target.Address,
 			protocol,
+			target.TCPResponderEnabled,
 		)
 		cancel()
 		stats.attempted++
@@ -465,6 +466,7 @@ func (engine *Engine) runLogicalTarget(
 }
 
 // probeOnce 调用对应协议 Driver 执行一次探测。
+// tcpResponderEnabled 参数指定是否使用在线 Agent 的 TCP 回复端口。
 //
 // 参数:
 //   - ctx: 控制 300ms 超时或取消的 Context。
@@ -478,12 +480,13 @@ func probeOnce(
 	icmpDriver *icmpDriver,
 	target netip.Addr,
 	protocol string,
+	tcpResponderEnabled bool,
 ) (time.Duration, error) {
 	switch protocol {
 	case "icmp":
 		return icmpDriver.Probe(ctx, target)
 	case "tcp":
-		return probeTCP(ctx, target)
+		return probeTCP(ctx, target, tcpResponderEnabled)
 	case "udp":
 		return probeUDP(ctx, target)
 	default:

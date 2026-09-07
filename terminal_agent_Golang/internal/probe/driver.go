@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	probeTimeout = time.Duration(maximumAverageLatencyMS) * time.Millisecond
-	tcpPort      = 80
-	udpPort      = 33434
+	probeTimeout     = time.Duration(maximumAverageLatencyMS) * time.Millisecond
+	tcpResponderPort = 33434
+	tcpPort          = 80
+	udpPort          = 33434
 )
 
 var errICMPDriverClosed = errors.New("ICMP Driver 已关闭")
@@ -255,34 +256,40 @@ func (driver *icmpDriver) deliver(sequence uint16, peer string) {
 	}
 }
 
-// probeTCP 使用系统路由选择的本地地址探测目标 TCP 80 端口。
+// probeTCP 根据在线状态探测 Agent 回复端口或原有 TCP 80 端口。
+// tcpResponderEnabled 参数为 true 时要求 Agent 端口连接成功。
 //
 // 参数:
 //   - ctx: 控制单次连接超时或取消的 Context。
 //   - target: 同版本目标公网地址。
 //
-// 返回值: 连接成功或 connection refused 的 RTT；其他错误表示丢包。
+// 返回值: 连接成功的 RTT；传统模式也接受 connection refused，其他错误表示丢包。
 func probeTCP(
 	ctx context.Context,
 	target netip.Addr,
+	tcpResponderEnabled bool,
 ) (time.Duration, error) {
 	network := "tcp4"
 	if target.Is6() {
 		network = "tcp6"
+	}
+	port := tcpPort
+	if tcpResponderEnabled {
+		port = tcpResponderPort
 	}
 	dialer := net.Dialer{}
 	startedAt := time.Now()
 	connection, err := dialer.DialContext(
 		ctx,
 		network,
-		net.JoinHostPort(target.String(), fmt.Sprint(tcpPort)),
+		net.JoinHostPort(target.String(), fmt.Sprint(port)),
 	)
 	rtt := time.Since(startedAt)
 	if err == nil {
 		_ = connection.Close()
 		return rtt, nil
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) {
+	if !tcpResponderEnabled && errors.Is(err, syscall.ECONNREFUSED) {
 		return rtt, nil
 	}
 	return 0, err

@@ -7,6 +7,10 @@
     margin-top: 10px;
   }
 
+  :deep(.el-table--default) {
+    font-size: var(--el-font-size-small);
+  }
+
   :deep(.el-loading-mask) {
     z-index: 100;
     background-color: var(--default-box-color) !important;

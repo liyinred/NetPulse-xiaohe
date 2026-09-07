@@ -16,7 +16,7 @@ from app.services.http_observability import record_outbound_response_error
 
 
 IP_LOOKUP_ENDPOINT = "http://43.138.198.101:8000/ip/api/apix"
-IP_LOOKUP_TIMEOUT_SECONDS = 8.0
+IP_LOOKUP_TIMEOUT_SECONDS = 2.0
 
 PROVINCE_CODES = {
     "北京": 2,
