@@ -105,11 +105,13 @@ def parse_public_address(
 
 async def lookup_network(
     public_ip: IPv4Address | IPv6Address,
+    strict_province: bool = True,
 ) -> NetworkInfo:
     """查询公网 IP 所在网段的省份、城市和运营商。
 
     参数:
         public_ip: 要识别归属信息的公网 IPv4 或 IPv6。
+        strict_province: 是否要求匹配国内省份编码；跳点展示可关闭。
     返回:
         包含公网 IP、省份、城市、运营商展示名称和归一化编码的网络信息；
         查询结果未提供城市或城市值无效时，城市为空字符串。
@@ -143,7 +145,7 @@ async def lookup_network(
         city_name = ""
     isp_name = validate_network_value(isp_name, "运营商")
     province = normalize_province(province_name)
-    if province == 1:
+    if strict_province and province == 1:
         raise IPLookupError("IP 归属查询未返回可识别的省份")
     return NetworkInfo(
         public_ip=public_ip,

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -28,7 +29,7 @@ const (
 	logFileName     = "netpulse-agent.log"
 )
 
-// Run 初始化 Linux 防火墙和接口日志，每次通过二维码更新设备绑定，并按用户确认启动持续探测。
+// Run 先检查公网直连资格，再配置防火墙、更新设备绑定并按用户确认启动探测。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
@@ -47,6 +48,24 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 	defer logFile.Close()
+	backend := client.NewBackend(backendBaseURL, requestTimeout, logFile)
+	fmt.Fprintln(output, "正在检查公网直连资格，NAT 设备不允许使用...")
+	sourceIPv4, err := waitForPublicIPv4(ctx, output, backend)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "  公网 IPv4：%s（本地源 IP 一致）\n", sourceIPv4)
+	var sourceIPv6 *netip.Addr
+	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
+	if ipv6Err == nil {
+		sourceIPv6 = &publicIPv6
+		fmt.Fprintf(output, "  公网 IPv6：%s（本地源 IP 一致）\n", publicIPv6)
+	} else if errors.Is(ipv6Err, client.ErrNATDevice) {
+		return ipv6Err
+	} else {
+		fmt.Fprintln(output, "  公网 IPv6：未检测到，本次将仅使用 IPv4")
+	}
+
 	firewallBackend, err := configureLinuxFirewall(ctx)
 	if err != nil {
 		fmt.Fprintf(output, "  防火墙：自动配置失败，不影响 Agent 继续运行：%v\n", err)
@@ -64,7 +83,6 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 
-	backend := client.NewBackend(backendBaseURL, requestTimeout, logFile)
 	deviceID := agentConfig.DeviceID()
 	needsNewDeviceID := deviceID == ""
 	if !needsNewDeviceID {
@@ -83,21 +101,6 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 	}
 	if err := config.Write(configPath, agentConfig); err != nil {
 		return err
-	}
-
-	sourceIPv4, err := waitForPublicIPv4(ctx, output, backend)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(output, "  公网 IPv4：%s\n", sourceIPv4)
-
-	var sourceIPv6 *netip.Addr
-	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
-	if ipv6Err == nil {
-		sourceIPv6 = &publicIPv6
-		fmt.Fprintf(output, "  公网 IPv6：%s\n", publicIPv6)
-	} else {
-		fmt.Fprintln(output, "  公网 IPv6：未检测到，本次将仅使用 IPv4")
 	}
 
 	qrCode, err := backend.RequestQRCode(ctx)
@@ -252,7 +255,7 @@ func printBindingInfo(output io.Writer, bindingInfo client.BindingInfo) {
 //   - output: 输出失败提示和重试状态的 Writer。
 //   - backend: FastAPI 中央服务 Client。
 //
-// 返回值: 获取成功的公网 IPv4；取消或三次尝试均失败时返回错误。
+// 返回值: 通过直连检查的公网 IPv4；NAT 立即返回错误，其他错误最多重试三次。
 func waitForPublicIPv4(
 	ctx context.Context,
 	output io.Writer,
@@ -262,6 +265,9 @@ func waitForPublicIPv4(
 		publicIPv4, err := backend.GetPublicIPv4(ctx)
 		if err == nil {
 			return publicIPv4, nil
+		}
+		if errors.Is(err, client.ErrNATDevice) {
+			return netip.Addr{}, err
 		}
 		if attempt >= ipv4MaxAttempts {
 			return netip.Addr{}, fmt.Errorf(

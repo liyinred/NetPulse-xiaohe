@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from app.models.user import User
 from app.schemas.bidirectional_mtr import CreateMTRRequest, CreateMTRResponse, MTRAcceptedResponse, MTRAgentTaskResponse, MTRDeviceListResponse, MTRResultRequest, MTRTaskResultResponse
 from app.services.auth import get_current_user
+from app.services.mtr_metadata import enrich_mtr_result
 from app.services.bidirectional_mtr import claim_mtr_task, create_mtr_task, get_mtr_result, list_mtr_devices, save_mtr_result
 
 
@@ -46,21 +47,22 @@ def create_user_mtr_task(request: CreateMTRRequest, user: Annotated[User, Depend
 
 
 @web_router.get("/{task_id}", response_model=MTRTaskResultResponse)
-def get_user_mtr_task(task_id: int, user: Annotated[User, Depends(get_current_user)]) -> MTRTaskResultResponse:
+async def get_user_mtr_task(task_id: int, user: Annotated[User, Depends(get_current_user)]) -> MTRTaskResultResponse:
     """查询当前用户双向 MTR 主任务的结果。
 
     参数:
         task_id: 双向 MTR 主任务主键。
         user: JWT 认证依赖解析出的当前用户。
     返回:
-        两个方向的状态和逐跳路径。
+        两个方向的状态、逐跳路径和归属信息。
     """
     try:
-        data = get_mtr_result(user.id, task_id)
+        data = await run_in_threadpool(get_mtr_result, user.id, task_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    await enrich_mtr_result(data)
     return MTRTaskResultResponse(data=data)
 
 

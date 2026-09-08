@@ -135,7 +135,7 @@ func (runner *MTRRunner) execute(ctx context.Context, task client.MTRTask) {
 //   - target: 中央服务下发且已校验地址族的目标 IP。
 //   - onProgress: 每完成一个 TTL 后接收当前累计逐跳结果的回调。
 //
-// 返回值: 至多 32 跳、每跳三次的 ICMP 统计；初始化失败时返回错误。
+// 返回值: 至多 32 跳、每跳三次的 ICMP 统计及可查询的 ASN；初始化失败时返回错误。
 func traceICMPMTR(ctx context.Context, target netip.Addr, onProgress func([]client.MTRHop)) ([]client.MTRHop, error) {
 	if !target.Is4() && !target.Is6() {
 		return nil, fmt.Errorf("MTR 目标 IP 地址族无效")
@@ -160,6 +160,8 @@ func traceICMPMTR(ctx context.Context, target netip.Addr, onProgress func([]clie
 	identifier := os.Getpid() & 0xffff
 	sequence := 0
 	hops := make([]client.MTRHop, 0, 32)
+	asnCache := make(map[string][]uint32)
+	asnBudget := 3 * time.Second
 	for ttl := 1; ttl <= 32; ttl++ {
 		var received int
 		var total time.Duration
@@ -216,7 +218,20 @@ func traceICMPMTR(ctx context.Context, target netip.Addr, onProgress func([]clie
 			value := int(total.Milliseconds() / int64(received))
 			average = &value
 		}
-		hops = append(hops, client.MTRHop{TTL: ttl, Address: address, Sent: 3, Received: received, LossRate: (3 - received) * 1000 / 3, AverageLatencyMS: average})
+		asns := make([]uint32, 0)
+		if address != nil {
+			var cached bool
+			asns, cached = asnCache[*address]
+			if !cached {
+				lookupStarted := time.Now()
+				lookupCtx, cancel := context.WithTimeout(ctx, asnBudget)
+				asns = lookupMTRASNs(lookupCtx, netip.MustParseAddr(*address))
+				cancel()
+				asnBudget -= time.Since(lookupStarted)
+				asnCache[*address] = asns
+			}
+		}
+		hops = append(hops, client.MTRHop{ASNs: asns, TTL: ttl, Address: address, Sent: 3, Received: received, LossRate: (3 - received) * 1000 / 3, AverageLatencyMS: average})
 		onProgress(hops)
 		if reached {
 			break

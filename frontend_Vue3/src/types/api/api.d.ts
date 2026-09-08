@@ -275,6 +275,9 @@ declare namespace Api {
 
     /** 单个 MTR 跳点 */
     interface MTRHop {
+      asns: number[]
+      networkType: 'public' | 'private' | 'shared' | 'link_local' | 'loopback' | 'special' | 'unknown'
+      location: string | null
       ttl: number
       address: string | null
       sent: number

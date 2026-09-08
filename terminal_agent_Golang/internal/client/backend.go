@@ -63,7 +63,7 @@ type BindingInfo struct {
 	ProvinceName string  `json:"province_name"`
 }
 
-// NewBackend 创建带请求超时的中央服务及公网 IPv6 查询 Client。
+// NewBackend 创建带请求超时的直连 Client，禁用环境代理以确保公网地址检查和任务连接一致。
 //
 // 参数:
 //   - baseURL: FastAPI 后端基础 URL。
@@ -77,8 +77,8 @@ func NewBackend(baseURL string, timeout time.Duration, errorOutput io.Writer) *B
 	}
 	return &Backend{
 		baseURL:          strings.TrimRight(baseURL, "/"),
-		httpClient:       newHTTPClient("tcp4", timeout, true),
-		onDemandClient:   newHTTPClient("tcp4", onDemandPollTimeout, true),
+		httpClient:       newHTTPClient("tcp4", timeout, false),
+		onDemandClient:   newHTTPClient("tcp4", onDemandPollTimeout, false),
 		publicIPv6Client: newHTTPClient("tcp6", timeout, false),
 		errorOutput:      errorOutput,
 	}
@@ -117,7 +117,7 @@ func newHTTPClient(
 // 参数:
 //   - ctx: 控制请求取消的 Context。
 //
-// 返回值: 有效公网 IPv4；请求或响应无效时返回错误。
+// 返回值: 经本地源地址比对的公网 IPv4；NAT、请求或响应无效时返回错误。
 func (backend *Backend) GetPublicIPv4(ctx context.Context) (netip.Addr, error) {
 	return backend.getPublicIP(ctx, backend.httpClient, "/network/public-ipv4", 4)
 }
@@ -127,8 +127,9 @@ func (backend *Backend) GetPublicIPv4(ctx context.Context) (netip.Addr, error) {
 // 参数:
 //   - ctx: 控制请求取消的 Context。
 //
-// 返回值: 有效公网 IPv6；请求或响应无效时返回错误。
+// 返回值: 经本地源地址比对的公网 IPv6；NAT、请求或响应无效时返回错误。
 func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
+	ctx, localAddress := traceLocalAddress(ctx)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPv6URL, nil)
 	if err != nil {
 		return netip.Addr{}, errors.New("创建公网 IPv6 请求失败: 请求地址无效")
@@ -149,6 +150,9 @@ func (backend *Backend) GetPublicIPv6(ctx context.Context) (netip.Addr, error) {
 	publicIP, err := netip.ParseAddr(strings.TrimSpace(string(body)))
 	if err != nil || !publicIP.Is6() || !publicIP.IsGlobalUnicast() || publicIP.IsPrivate() {
 		return netip.Addr{}, errors.New("公网 IPv6 服务返回的地址无效")
+	}
+	if err := validateDirectPublicIP(publicIP, *localAddress); err != nil {
+		return netip.Addr{}, err
 	}
 	return publicIP, nil
 }
@@ -185,13 +189,14 @@ func (backend *Backend) DeviceExists(
 //   - path: 中央服务公网地址接口路径。
 //   - expectedVersion: 期望返回的 IP 版本。
 //
-// 返回值: 版本匹配的公网地址；请求或响应无效时返回错误。
+// 返回值: 版本匹配且与本地源地址一致的公网地址；NAT、请求或响应无效时返回错误。
 func (backend *Backend) getPublicIP(
 	ctx context.Context,
 	httpClient *http.Client,
 	path string,
 	expectedVersion int,
 ) (netip.Addr, error) {
+	ctx, localAddress := traceLocalAddress(ctx)
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
@@ -213,6 +218,9 @@ func (backend *Backend) getPublicIP(
 	if expectedVersion == 4 && !publicIP.Is4() ||
 		expectedVersion == 6 && !publicIP.Is6() {
 		return netip.Addr{}, fmt.Errorf("中央服务返回的公网 IPv%d 无效", expectedVersion)
+	}
+	if err := validateDirectPublicIP(publicIP, *localAddress); err != nil {
+		return netip.Addr{}, err
 	}
 	return publicIP, nil
 }

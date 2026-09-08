@@ -49,6 +49,8 @@
         <ElTable :data="direction.hops" empty-text="等待设备执行并上报路径" table-layout="auto">
           <ElTableColumn prop="ttl" label="TTL" width="70" />
           <ElTableColumn prop="address" label="跳点 IP" min-width="145"><template #default="{ row }">{{ row.address ?? '*' }}</template></ElTableColumn>
+          <ElTableColumn label="AS 码"><template #default="{ row }">{{ formatASNs(row) }}</template></ElTableColumn>
+          <ElTableColumn label="地理位置"><template #default="{ row }">{{ formatLocation(row) }}</template></ElTableColumn>
           <ElTableColumn label="丢包" min-width="90" align="right"><template #default="{ row }">{{ formatLoss(row.lossRate) }}</template></ElTableColumn>
           <ElTableColumn label="平均延迟" min-width="105" align="right"><template #default="{ row }">{{ row.averageLatencyMs === null ? '-' : `${row.averageLatencyMs} ms` }}</template></ElTableColumn>
         </ElTable>
@@ -63,6 +65,33 @@
   import { fetchCreateMTRTask, fetchGetMTRDevices, fetchGetMTRTask } from '@/api/detection'
 
   defineOptions({ name: 'BidirectionalMTR' })
+
+  const networkTypeLabels: Record<Api.Detection.MTRHop['networkType'], string> = {
+    public: '公网', private: '私有网络', shared: '共享地址（运营商 CGNAT）',
+    link_local: '链路本地', loopback: '回环', special: '特殊地址', unknown: '-'
+  }
+
+  /**
+   * 合并展示跳点位置与网络类型，并去除省市间的分隔符。
+   * @param hop 当前跳点信息。
+   * @returns 公网地理位置、非公网类型或缺失占位符。
+   */
+  function formatLocation(hop: Api.Detection.MTRHop): string {
+    if (hop.networkType !== 'public' && hop.networkType !== 'unknown') {
+      return networkTypeLabels[hop.networkType] ?? '-'
+    }
+    return hop.location?.replace(/\s*·\s*/g, '').trim() || '-'
+  }
+
+  /**
+   * 格式化跳点的 Origin ASN 列表。
+   * @param hop 当前跳点信息。
+   * @returns AS 码列表或缺失原因。
+   */
+  function formatASNs(hop: Api.Detection.MTRHop): string {
+    if (hop.networkType !== 'public' && hop.networkType !== 'unknown') return '-'
+    return hop.asns?.length ? hop.asns.map((asn) => `AS${asn}`).join(' / ') : '-'
+  }
 
   const devices = ref<Api.Detection.MTRDevice[]>([])
   const form = reactive<Partial<Api.Detection.MTRCreateParams>>({})

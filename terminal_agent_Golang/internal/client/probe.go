@@ -113,12 +113,13 @@ type mtrTaskResponse struct {
 
 // MTRHop 保存一个 TTL 的 MTR 统计结果。
 type MTRHop struct {
-	TTL              int     `json:"ttl"`
-	Address          *string `json:"address"`
-	Sent             int     `json:"sent"`
-	Received         int     `json:"received"`
-	LossRate         int     `json:"lossRate"`
-	AverageLatencyMS *int    `json:"averageLatencyMs"`
+	ASNs             []uint32 `json:"asns"`
+	TTL              int      `json:"ttl"`
+	Address          *string  `json:"address"`
+	Sent             int      `json:"sent"`
+	Received         int      `json:"received"`
+	LossRate         int      `json:"lossRate"`
+	AverageLatencyMS *int     `json:"averageLatencyMs"`
 }
 
 // MTRResultRequest 保存一个方向的 MTR 进度或最终结果上报内容。

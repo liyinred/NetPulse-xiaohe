@@ -1,7 +1,7 @@
 """双向 MTR API 数据模型。"""
 
 from ipaddress import IPv4Address, IPv6Address
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -62,10 +62,18 @@ class MTRHop(BaseModel):
 
     ttl: int = Field(ge=1, le=32)
     address: str | None = None
+    asns: list[Annotated[int, Field(gt=0, le=4294967295)]] = Field(default_factory=list, max_length=64)
     sent: int = Field(ge=0, le=10)
     received: int = Field(ge=0, le=10)
     lossRate: int = Field(ge=0, le=1000)
     averageLatencyMs: int | None = Field(default=None, ge=0, le=3000)
+
+
+class MTRDisplayHop(MTRHop):
+    """保存查询时补充的跳点展示信息，与 Agent 原始结果分离。"""
+
+    networkType: Literal["public", "private", "shared", "link_local", "loopback", "special", "unknown"] = "unknown"
+    location: str | None = None
 
 
 class MTRDirectionResult(BaseModel):
@@ -76,7 +84,7 @@ class MTRDirectionResult(BaseModel):
     targetIp: str
     status: MTRStatus
     errorCode: str | None = None
-    hops: list[MTRHop]
+    hops: list[MTRDisplayHop]
 
 
 class MTRTaskResult(BaseModel):
