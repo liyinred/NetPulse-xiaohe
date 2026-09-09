@@ -36,7 +36,6 @@
         <template #header>
           <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-2">
-              <ArtSvgIcon icon="ri:route-line" class="text-lg text-theme" />
               <div class="flex flex-col">
                 <span class="font-medium text-g-900">{{ formatDirectionNodes(direction.direction) }}</span>
                 <span class="text-xs text-g-500">{{ direction.sourceIp }} → {{ direction.targetIp }}</span>

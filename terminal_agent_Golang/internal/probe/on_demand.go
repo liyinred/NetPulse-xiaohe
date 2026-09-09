@@ -17,7 +17,7 @@ const (
 	onDemandSubmitMaxAttempts = 5
 )
 
-// OnDemandRunner 长轮询、执行并上报临时 IP 按需探测任务。
+// OnDemandRunner 长轮询、执行并上报即时 IP 按需探测任务。
 type OnDemandRunner struct {
 	backend    *client.Backend
 	deviceID   string
@@ -62,7 +62,7 @@ func (runner *OnDemandRunner) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			fmt.Fprintf(runner.output, "轮询临时 IP 探测任务失败: %v\n", err)
+			fmt.Fprintf(runner.output, "轮询即时 IP 探测任务失败: %v\n", err)
 			if err := waitUntil(ctx, time.Now().Add(onDemandPollRetryDelay)); err != nil {
 				return err
 			}
@@ -84,12 +84,12 @@ func (runner *OnDemandRunner) Run(ctx context.Context) error {
 func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDemandTask) {
 	source, target, err := runner.validateTask(task)
 	if err != nil {
-		fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 无效: %v\n", task.ID, err)
+		fmt.Fprintf(runner.output, "即时 IP 探测任务 %d 无效: %v\n", task.ID, err)
 		return
 	}
 	driver, err := newICMPDriver(task.IPVersion)
 	if err != nil {
-		fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 初始化失败: %v\n", task.ID, err)
+		fmt.Fprintf(runner.output, "即时 IP 探测任务 %d 初始化失败: %v\n", task.ID, err)
 		return
 	}
 	defer driver.Close()
@@ -136,7 +136,7 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 		attempts = attempt
 		submitErr = runner.backend.SubmitOnDemandResult(ctx, request)
 		if submitErr == nil {
-			fmt.Fprintf(runner.output, "临时 IP 探测任务 %d 已完成: %s\n", task.ID, target)
+			fmt.Fprintf(runner.output, "即时 IP 探测任务 %d 已完成: %s\n", task.ID, target)
 			return
 		}
 		if attempt == onDemandSubmitMaxAttempts {
@@ -144,7 +144,7 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 		}
 		fmt.Fprintf(
 			runner.output,
-			"临时 IP 探测任务 %d 第 %d/%d 次上报失败，将在 %s 后重试: %v\n",
+			"即时 IP 探测任务 %d 第 %d/%d 次上报失败，将在 %s 后重试: %v\n",
 			task.ID, attempt, onDemandSubmitMaxAttempts, onDemandSubmitRetryDelay, submitErr,
 		)
 		if err := waitUntil(ctx, time.Now().Add(onDemandSubmitRetryDelay)); err != nil {
@@ -154,7 +154,7 @@ func (runner *OnDemandRunner) executeTask(ctx context.Context, task client.OnDem
 	}
 	fmt.Fprintf(
 		runner.output,
-		"临时 IP 探测任务 %d 上报失败，已尝试 %d 次: %v\n",
+		"即时 IP 探测任务 %d 上报失败，已尝试 %d 次: %v\n",
 		task.ID, attempts, submitErr,
 	)
 }

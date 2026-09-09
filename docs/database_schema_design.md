@@ -1,6 +1,6 @@
 ## 数据表结构设计
 
-数据表中的内部主键和外键统一使用 `INT`，Unix 时间戳统一使用 `INT64`；状态、协议和模式等有限选项使用整数编码，并通过 `CHECK` 约束合法取值。`VARCHAR` 和 `TEXT` 仅用于不可数值化的标识或文本。临时 IP 节点结果使用固定 schema 的 `JSON` 保存，其中 ICMP、TCP 必填，UDP 未启用时允许为 `null`。
+数据表中的内部主键和外键统一使用 `INT`，Unix 时间戳统一使用 `INT64`；状态、协议和模式等有限选项使用整数编码，并通过 `CHECK` 约束合法取值。`VARCHAR` 和 `TEXT` 仅用于不可数值化的标识或文本。即时 IP 节点结果使用固定 schema 的 `JSON` 保存，其中 ICMP、TCP 必填，UDP 未启用时允许为 `null`。
 
 ### 7.1 `users`
 
@@ -54,7 +54,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `id`               | `INT`         | `PK`, `AUTO_INCREMENT`             | 设备记录自增主键                                            |
 | `device_id`        | `VARCHAR(64)` | `UNIQUE`                             | Agent 首次绑定时生成的稳定设备标识                          |
 | `user_id`          | `INT`         | `FK → users.id`                     | 关联`users.id`；绑定前允许为空，关联用户删除后置空        |
-| `on_demand_status` | `INT`         | `NOT NULL`, `DEFAULT 1`, `CHECK` | 是否接受临时 IP 按需任务；`0`=关闭、`1`=开启            |
+| `on_demand_status` | `INT`         | `NOT NULL`, `DEFAULT 1`, `CHECK` | 是否接受即时 IP 按需任务；`0`=关闭、`1`=开启            |
 | `last_seen_at`     | `INT64`       | -                                      | 最近一次通过身份校验的控制任务轮询时间，Unix 时间戳，单位秒 |
 | `created_time`     | `INT64`       | -                                      | 创建时间，Unix 时间戳，单位秒                               |
 
@@ -154,11 +154,11 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `started_at`      | `INT64`         | -                          | 首个节点开始时间                                               |
 | `finished_at`     | `INT64`         | -                          | 执行进入终态的时间                                             |
 
-`active_key` 由查询的目标IP生成。中央服务在事务内插入活动执行，唯一键冲突时复用已有执行记录 `id`；执行进入终态后将 `active_key` 置空。目标及网络属性直接保存在执行中，不再单独维护临时 IP 字典。
+`active_key` 由查询的目标IP生成。中央服务在事务内插入活动执行，唯一键冲突时复用已有执行记录 `id`；执行进入终态后将 `active_key` 置空。目标及网络属性直接保存在执行中，不再单独维护即时 IP 字典。
 
 ### 7.9 `probe_queries`
 
-一条记录对应一个用户发起的临时 IP 查询，是访问控制、配额和查询历史的边界。
+一条记录对应一个用户发起的即时 IP 查询，是访问控制、配额和查询历史的边界。
 
 | 字段             | 数据类型  | 键                                | 说明                     |
 | ---------------- | --------- | --------------------------------- | ------------------------ |

@@ -223,7 +223,7 @@
   import { StorageConfig } from '@/utils/storage'
   import { validateIPAddress } from '@/utils/form/validator'
 
-  defineOptions({ name: 'TemporaryIPDetection' })
+  defineOptions({ name: 'InstantDetection' })
 
   type ProtocolType = Api.Detection.ProtocolType
   type NodeResult = Api.Detection.OnDemandNodeResult

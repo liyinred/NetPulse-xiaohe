@@ -185,7 +185,7 @@ declare namespace Api {
       series: ProbeTrendSeries[]
     }
 
-    /** 临时 IP 探测执行状态 */
+    /** 即时 IP 探测执行状态 */
     type OnDemandProbeStatus =
       | 'queued'
       | 'running'
@@ -193,12 +193,12 @@ declare namespace Api {
       | 'partial_completed'
       | 'failed'
 
-    /** 临时 IP 探测创建参数 */
+    /** 即时 IP 探测创建参数 */
     interface OnDemandProbeCreateParams {
       targetIp: string
     }
 
-    /** 临时 IP 探测创建结果 */
+    /** 即时 IP 探测创建结果 */
     interface OnDemandProbeCreated {
       queryId: number
       executionId: number
@@ -206,13 +206,13 @@ declare namespace Api {
       targetIp: string
     }
 
-    /** 单个协议的临时探测结果 */
+    /** 单个协议的即时探测结果 */
     interface OnDemandProtocolResult {
       loss_rate: number
       average_latency_ms: number
     }
 
-    /** 单个在线节点的临时探测结果 */
+    /** 单个在线节点的即时探测结果 */
     interface OnDemandNodeResult {
       sourceIpId: number
       isp: number | null
@@ -222,7 +222,7 @@ declare namespace Api {
       udp: OnDemandProtocolResult | null
     }
 
-    /** 临时 IP 探测进度和分类结果 */
+    /** 即时 IP 探测进度和分类结果 */
     interface OnDemandProbeResult {
       executionId: number
       status: OnDemandProbeStatus

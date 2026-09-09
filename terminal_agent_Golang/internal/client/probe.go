@@ -62,7 +62,7 @@ type probeAcceptedResponse struct {
 	Accepted bool `json:"accepted"`
 }
 
-// OnDemandTask 保存中央服务下发的临时 IP 按需探测任务。
+// OnDemandTask 保存中央服务下发的即时 IP 按需探测任务。
 type OnDemandTask struct {
 	ID                  int64  `json:"id"`
 	SourceIP            string `json:"source_ip"`

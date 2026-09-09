@@ -155,12 +155,12 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		return err
 	}
 	if !confirmed {
-		fmt.Fprintln(output, "已选择按需任务模式。Agent 将保持在线，等待临时 IP 探测与双向 MTR 任务。")
+		fmt.Fprintln(output, "已选择按需任务模式。Agent 将保持在线，等待即时 IP 探测与双向 MTR 任务。")
 		return onDemandRunner.Run(ctx)
 	}
 	go func() {
 		if runnerErr := onDemandRunner.Run(ctx); runnerErr != nil && ctx.Err() == nil {
-			fmt.Fprintf(output, "临时 IP 探测轮询已停止: %v\n", runnerErr)
+			fmt.Fprintf(output, "即时 IP 探测轮询已停止: %v\n", runnerErr)
 		}
 	}()
 	fmt.Fprintln(output, "已选择完整探测模式，正在获取异网和跨省探测目标...")
@@ -202,7 +202,7 @@ func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
 		if _, err := fmt.Fprint(
 			output,
 			"\n请选择 Agent 运行模式：\n"+
-				"  0. 按需任务模式：执行临时 IP 探测与双向 MTR\n"+
+				"  0. 按需任务模式：执行即时 IP 探测与双向 MTR\n"+
 				"  1. 完整探测模式：在按需任务基础上，持续执行异网与跨省探测\n"+
 				"请输入选项（0 或 1）： ",
 		); err != nil {

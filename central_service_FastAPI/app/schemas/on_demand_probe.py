@@ -1,4 +1,4 @@
-"""临时 IP 按需探测 API 数据模型。"""
+"""即时 IP 按需探测 API 数据模型。"""
 
 from ipaddress import IPv4Address, IPv6Address
 from typing import Literal
@@ -10,13 +10,13 @@ OnDemandStatus = Literal["queued", "running", "completed", "partial_completed", 
 
 
 class CreateProbeQueryRequest(BaseModel):
-    """定义网页登录用户创建临时 IP 查询的请求。"""
+    """定义网页登录用户创建即时 IP 查询的请求。"""
 
     target_ip: IPv4Address | IPv6Address = Field(alias="targetIp")
 
 
 class CreateProbeQueryData(BaseModel):
-    """保存新建临时 IP 查询的标识和初始状态。"""
+    """保存新建即时 IP 查询的标识和初始状态。"""
 
     queryId: int
     executionId: int
@@ -25,10 +25,10 @@ class CreateProbeQueryData(BaseModel):
 
 
 class CreateProbeQueryResponse(BaseModel):
-    """包装临时 IP 查询创建结果。"""
+    """包装即时 IP 查询创建结果。"""
 
     code: int = 200
-    msg: str = "临时 IP 探测已创建"
+    msg: str = "即时 IP 探测已创建"
     data: CreateProbeQueryData
 
 
@@ -58,7 +58,7 @@ class OnDemandResultGroups(BaseModel):
 
 
 class ProbeQueryResultData(BaseModel):
-    """保存用户可见的临时 IP 查询进度和聚合结果。"""
+    """保存用户可见的即时 IP 查询进度和聚合结果。"""
 
     executionId: int
     status: OnDemandStatus
@@ -76,10 +76,10 @@ class ProbeQueryResultData(BaseModel):
 
 
 class ProbeQueryResultResponse(BaseModel):
-    """包装当前用户的临时 IP 查询结果。"""
+    """包装当前用户的即时 IP 查询结果。"""
 
     code: int = 200
-    msg: str = "临时 IP 探测结果获取成功"
+    msg: str = "即时 IP 探测结果获取成功"
     data: ProbeQueryResultData
 
 

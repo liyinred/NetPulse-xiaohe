@@ -54,6 +54,7 @@
   const dialogMode = ref<'create' | 'edit'>('create')
   const currentIPData = ref<IPListItem>()
   const searchForm = ref<Api.SystemManage.IPSearchParams>({
+    ipVersion: 4,
     sortField: 'updateTime',
     sortOrder: 'desc'
   })

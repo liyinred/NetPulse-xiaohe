@@ -1,4 +1,4 @@
-"""临时 IP 按需探测 ORM 模型。"""
+"""即时 IP 按需探测 ORM 模型。"""
 
 from typing import Any
 
@@ -41,7 +41,7 @@ class OnDemandExecution(Base):
 
 
 class ProbeQuery(Base):
-    """保存单个用户发起的临时 IP 查询及其访问期限。"""
+    """保存单个用户发起的即时 IP 查询及其访问期限。"""
 
     __tablename__ = "probe_queries"
 

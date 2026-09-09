@@ -5,12 +5,12 @@ import { AppRouteRecord } from '@/types/router'
  */
 export const detectionRoutes: AppRouteRecord[] = [
   {
-    path: '/temporary-ip-detection',
-    name: 'TemporaryIPDetection',
-    component: '/detection/temporary-ip',
+    path: '/instant-detection',
+    name: 'InstantDetection',
+    component: '/detection/instant-detection',
     meta: {
-      title: '临时IP探测',
-      icon: 'ri:crosshair-2-line',
+      title: '即时探测',
+      icon: 'ri:pulse-line',
       keepAlive: true
     }
   },

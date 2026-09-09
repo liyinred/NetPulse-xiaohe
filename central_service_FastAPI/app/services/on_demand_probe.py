@@ -1,4 +1,4 @@
-"""临时 IP 按需探测编排服务。"""
+"""即时 IP 按需探测编排服务。"""
 
 from hashlib import sha256
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -359,7 +359,7 @@ def _lock_execution_and_task(
 
 
 def get_probe_query_result(user_id: int, query_id: int) -> ProbeQueryResultData:
-    """按用户权限查询临时 IP 执行进度和已完成节点结果。
+    """按用户权限查询即时 IP 执行进度和已完成节点结果。
 
     参数:
         user_id: 当前登录用户主键。
@@ -375,12 +375,12 @@ def get_probe_query_result(user_id: int, query_id: int) -> ProbeQueryResultData:
             .where(ProbeQuery.id == query_id)
         ).first()
         if row is None:
-            raise LookupError("临时 IP 查询不存在")
+            raise LookupError("即时 IP 查询不存在")
         query, execution = row
         if query.user_id != user_id:
-            raise PermissionError("无权查看该临时 IP 查询")
+            raise PermissionError("无权查看该即时 IP 查询")
         if query.expires_at < current_time:
-            raise PermissionError("临时 IP 查询结果已过期")
+            raise PermissionError("即时 IP 查询结果已过期")
         _expire_execution(session, execution, current_time)
         task_rows = session.execute(
             select(OnDemandNodeTask, IPDict)

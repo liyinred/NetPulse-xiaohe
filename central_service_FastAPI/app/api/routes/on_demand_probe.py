@@ -1,4 +1,4 @@
-"""临时 IP 按需探测的用户与 Agent 路由。"""
+"""即时 IP 按需探测的用户与 Agent 路由。"""
 
 import asyncio
 from typing import Annotated
@@ -25,8 +25,8 @@ from app.services.on_demand_probe import (
 )
 
 
-router = APIRouter(prefix="/probes/on-demand", tags=["临时 IP 探测 Agent"])
-web_router = APIRouter(prefix="/api/on-demand-probes", tags=["临时 IP 探测"])
+router = APIRouter(prefix="/probes/on-demand", tags=["即时 IP 探测 Agent"])
+web_router = APIRouter(prefix="/api/on-demand-probes", tags=["即时 IP 探测"])
 
 
 @web_router.post("", response_model=CreateProbeQueryResponse)
@@ -34,7 +34,7 @@ async def create_user_probe_query(
     request: CreateProbeQueryRequest,
     user: Annotated[User, Depends(get_current_user)],
 ) -> CreateProbeQueryResponse:
-    """创建当前用户的临时公网 IP 探测查询。
+    """创建当前用户的即时公网 IP 探测查询。
 
     参数:
         request: 用户输入的单个 IPv4 或 IPv6 地址。
@@ -56,7 +56,7 @@ def get_user_probe_query(
     query_id: int,
     user: Annotated[User, Depends(get_current_user)],
 ) -> ProbeQueryResultResponse:
-    """查询当前用户拥有的临时 IP 探测进度和结果。
+    """查询当前用户拥有的即时 IP 探测进度和结果。
 
     参数:
         query_id: 用户查询记录主键。
