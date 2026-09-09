@@ -5,15 +5,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from time import time
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, func, select
+from sqlalchemy import Select, case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 from app.db.session import SessionLocal
 from app.models.alert_event import AlertEvent
+from app.models.probe_alert_state import ProbeAlertState
 from app.models.device import Device
 from app.models.ip_dict import IPDict
 from app.models.probe_state import (
@@ -23,7 +24,6 @@ from app.models.probe_state import (
 )
 from app.models.user import User
 from app.schemas.probe import (
-    ProbeAlertsRequest,
     ProbeNodeItem,
     ProbePeriodReportRow,
     ProbeProtocolSummary,
@@ -49,7 +49,7 @@ from app.services.network import (
     format_probe_node_name,
     lookup_network,
 )
-from app.services.wechat import TemplateMessage, send_template_messages
+from app.services.wechat import TemplateMessage
 
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,13 @@ PROBE_RANGE_DAYS = {"1d": 1, "2d": 2, "7d": 7}
 REPORT_LOSS_FAILURE_RATE = 100.0
 REPORT_LATENCY_FAILURE_MS = 300.0
 ALERT_LOSS_RATE_THRESHOLD = 100
+ALERT_CONFIRM_WINDOWS = 2
+ALERT_REMINDER_SECONDS = 15 * 60
+ALERT_EVENT_NAMES = {
+    "firing": "探测丢包故障确认",
+    "reminder": "探测丢包故障持续提醒",
+    "recovered": "探测丢包故障恢复",
+}
 PROBE_STATE_MODELS = {
     "icmp": ICMPProbeState,
     "tcp": TCPProbeState,
@@ -120,6 +127,31 @@ def _get_user_probe_source_network(
     return source_record.province, source_record.isp
 
 
+def _exclude_icmp_full_loss(
+    statement: Select,
+    state_model: type[ICMPProbeState] | type[TCPProbeState] | type[UDPProbeState],
+) -> Select:
+    """从概览查询中排除 ICMP 全丢包样本及其对应的 TCP、UDP 样本。
+
+    参数:
+        statement: 尚未执行的协议聚合查询。
+        state_model: 当前查询使用的协议状态模型。
+    返回:
+        按分钟、源 IP、目标 IP 和探测模式排除 ICMP 全丢包的查询；
+        无对应 ICMP 记录的 TCP、UDP 样本保留。
+    """
+    if state_model is ICMPProbeState:
+        return statement.where(state_model.loss_rate < 1000)
+    failed_icmp = select(ICMPProbeState.time_id).where(
+        ICMPProbeState.time_id == state_model.time_id,
+        ICMPProbeState.source_ip_id == state_model.source_ip_id,
+        ICMPProbeState.target_ip_id == state_model.target_ip_id,
+        ICMPProbeState.probe_mode == state_model.probe_mode,
+        ICMPProbeState.loss_rate == 1000,
+    ).correlate(state_model).exists()
+    return statement.where(~failed_icmp)
+
+
 def _build_probe_report(
     session: Session,
     user_id: int,
@@ -133,7 +165,7 @@ def _build_probe_report(
     previous_day_date: str,
     previous_day_rows: list[ProbePeriodReportRow],
 ) -> ProbeReportData:
-    """按目标省份和运营商汇总时间窗口内的三协议探测结果。
+    """按目标网络汇总时间窗口内的三协议结果，同步排除 ICMP 全丢包对应样本。
 
     参数:
         session: 当前数据库会话。
@@ -174,6 +206,7 @@ def _build_probe_report(
             )
             .group_by(IPDict.province, IPDict.isp)
         )
+        statement = _exclude_icmp_full_loss(statement, state_model)
         if user_level < UserLevel.PREMIUM:
             statement = statement.where(
                 state_model.device_related_id.in_(
@@ -235,7 +268,7 @@ def _build_previous_day_report(
     probe_mode: int,
     current_time: int,
 ) -> tuple[str, list[ProbePeriodReportRow]]:
-    """按目标省份和运营商汇总前一天全天及晚高峰的探测结果。
+    """按目标网络汇总前一天全天及晚高峰结果，同步排除 ICMP 全丢包对应样本。
 
     参数:
         session: 当前数据库会话。
@@ -302,6 +335,7 @@ def _build_previous_day_report(
             IPDict.province,
             IPDict.isp,
         )
+        statement = _exclude_icmp_full_loss(statement, state_model)
         if user_level < UserLevel.PREMIUM:
             statement = statement.where(
                 state_model.device_related_id.in_(
@@ -401,6 +435,7 @@ class _AlertTemplateGroup:
     source_ip: str
     probe_type: str
     unix_timestamp: int
+    event_kind: str = "firing"
     node_names: list[str] = field(default_factory=list)
     node_name_set: set[str] = field(default_factory=set)
     maximum_loss_rate: int = 0
@@ -749,16 +784,22 @@ def _validate_probe_target(
     return target
 
 
-def _save_probe_result_once(request: ProbeResultRequest) -> None:
-    """在单个事务中校验并保存一个分类的分钟探测结果。
+def _save_probe_result_once(request: ProbeResultRequest) -> list[TemplateMessage]:
+    """在单个事务中保存分钟结果并更新跨分钟告警状态。
 
     参数:
         request: Agent 上报的完整分钟结果。
     返回:
-        无返回值；重复且内容一致的请求视为成功。
+        提交后待发送的通知；重复且内容一致的请求返回空列表。
     """
     mode_code = PROBE_MODE_CODES[request.probe_mode]
     with SessionLocal.begin() as session:
+        # 先锁定设备，再读取结果和状态，串行化同设备的并发上报。
+        session.execute(
+            select(Device.id)
+            .where(Device.device_id == request.device_id)
+            .with_for_update()
+        ).all()
         device, source = _get_owned_source(
             session,
             request.device_id,
@@ -830,7 +871,7 @@ def _save_probe_result_once(request: ProbeResultRequest) -> None:
                 for _, incoming, existing in protocol_states
             ):
                 raise ValueError("相同幂等键的上报内容不一致")
-            return
+            return []
 
         for state_model, incoming_values, _ in protocol_states:
             for target_id in sorted(incoming_values):
@@ -850,6 +891,10 @@ def _save_probe_result_once(request: ProbeResultRequest) -> None:
                         rtt_ms=rtt_ms,
                     )
                 )
+        messages = _update_probe_alert_states(
+            session, request, device, source, targets_by_ip
+        )
+    return messages
 
 
 def _is_duplicate_key_error(exc: IntegrityError) -> bool:
@@ -864,18 +909,17 @@ def _is_duplicate_key_error(exc: IntegrityError) -> bool:
     return bool(original_args) and original_args[0] == 1062
 
 
-def save_probe_result(request: ProbeResultRequest) -> None:
+def save_probe_result(request: ProbeResultRequest) -> list[TemplateMessage]:
     """幂等保存分钟探测结果，并对并发重复写入重试一次。
 
     参数:
         request: Agent 上报的完整分钟结果。
     返回:
-        无返回值；重复且内容一致的请求视为成功。
+        提交后待发送的通知；重复且内容一致的请求返回空列表。
     """
     for attempt in range(2):
         try:
-            _save_probe_result_once(request)
-            return
+            return _save_probe_result_once(request)
         except IntegrityError as exc:
             if attempt > 0 or not _is_duplicate_key_error(exc):
                 raise
@@ -1145,12 +1189,12 @@ def _format_alert_start_time(unix_timestamp: int) -> str:
 
 
 def _build_template_messages(
-    groups: dict[tuple[str, str, str, str, int], _AlertTemplateGroup],
+    groups: dict[tuple[str, str, str, str, int, str], _AlertTemplateGroup],
 ) -> list[TemplateMessage]:
     """将告警分组转换为微信模板消息。
 
     参数:
-        groups: 按用户、源 IP、分类、协议和时间窗口聚合的告警。
+        groups: 按用户、源 IP、分类、协议、时间窗口和事件类型聚合的通知。
     返回:
         可直接交给微信服务发送的模板消息列表。
     """
@@ -1160,7 +1204,7 @@ def _build_template_messages(
             TemplateMessage(
                 openid=group.openid,
                 data={
-                    "first": "检测到整分钟窗口丢包告警",
+                    "first": ALERT_EVENT_NAMES[group.event_kind],
                     "keyword1": group.source_ip,
                     "keyword2": ", ".join(group.node_names),
                     "keyword3": group.probe_type,
@@ -1169,7 +1213,11 @@ def _build_template_messages(
                     ),
                     "remark": (
                         f"最高丢包率：{group.maximum_loss_rate / 10:.1f}%，"
-                        "请及时检查设备网络。"
+                        + (
+                            "已连续 2 分钟丢包率不超过 10%。"
+                            if group.event_kind == "recovered"
+                            else "请及时检查设备网络。"
+                        )
                     ),
                 },
             )
@@ -1177,140 +1225,133 @@ def _build_template_messages(
     return messages
 
 
-def _save_probe_alert_events(
-    request: ProbeAlertsRequest,
-) -> list[TemplateMessage]:
-    """校验并幂等保存丢包率超过 10% 的自然分钟聚合告警事件。
+def _advance_probe_alert_state(
+    state: ProbeAlertState, window_at: int, loss_rate: int
+) -> str | None:
+    """推进单个维度的告警状态，缺失窗口打断连续计数。
 
     参数:
-        request: Agent 上报的自然分钟聚合丢包告警。
+        state: 当前持久化状态。
+        window_at: 当前自然分钟窗口结束时间。
+        loss_rate: 当前窗口的整数千分比丢包率。
     返回:
-        数据库提交后需要发送的微信模板消息。
+        首次故障、持续提醒或恢复的事件类型；无需通知时返回 None。
     """
-    with SessionLocal.begin() as session:
-        event_ids = {alert.event_id for alert in request.alerts}
-        existing_event_ids = set(
-            session.scalars(
-                select(AlertEvent.event_id).where(
-                    AlertEvent.event_id.in_(event_ids)
-                )
-            ).all()
-        )
-        device_ids = {alert.device_id for alert in request.alerts}
-        devices_by_external_id = {
-            device.device_id: device
-            for device in session.scalars(
-                select(Device).where(
-                    Device.device_id.in_(device_ids),
-                    Device.user_id.is_not(None),
-                )
-            ).all()
-        }
-        requested_ips = {
-            str(address)
-            for alert in request.alerts
-            for address in (alert.source_ip, alert.target_ip)
-        }
-        ips_by_address = {
-            ip_record.ip: ip_record
-            for ip_record in session.scalars(
-                select(IPDict).where(IPDict.ip.in_(requested_ips))
-            ).all()
-        }
-        user_ids = {
-            device.user_id
-            for device in devices_by_external_id.values()
-            if device.user_id is not None
-        }
-        users_by_id = {
-            user.id: user
-            for user in session.scalars(
-                select(User).where(User.id.in_(user_ids))
-            ).all()
-        }
-        template_groups = {}
-        for alert in request.alerts:
-            if alert.event_id in existing_event_ids:
+    if window_at <= state.last_window_at:
+        return None
+    if window_at - state.last_window_at != 60:
+        state.abnormal_count = 0
+        state.normal_count = 0
+    state.last_window_at = window_at
+    if loss_rate > ALERT_LOSS_RATE_THRESHOLD:
+        state.normal_count = 0
+        if not state.is_firing and state.abnormal_count == 0:
+            state.fault_started_at = window_at - 60
+        state.abnormal_count = min(state.abnormal_count + 1, ALERT_CONFIRM_WINDOWS)
+        if not state.is_firing:
+            if state.abnormal_count < ALERT_CONFIRM_WINDOWS:
+                return None
+            state.is_firing = True
+            return "firing"
+        if (
+            state.last_notified_at is None
+            or window_at - state.last_notified_at >= ALERT_REMINDER_SECONDS
+        ):
+            return "reminder"
+        return None
+    state.abnormal_count = 0
+    state.normal_count = min(state.normal_count + 1, ALERT_CONFIRM_WINDOWS)
+    if state.is_firing and state.normal_count >= ALERT_CONFIRM_WINDOWS:
+        state.is_firing = False
+        state.fault_started_at = None
+        return "recovered"
+    if not state.is_firing:
+        state.fault_started_at = None
+    return None
+
+
+def _update_probe_alert_states(
+    session: Session,
+    request: ProbeResultRequest,
+    device: Device,
+    source: IPDict,
+    targets_by_ip: dict[str, IPDict],
+) -> list[TemplateMessage]:
+    """在已持有设备行锁的结果事务内更新状态并记录通知事件。
+
+    参数:
+        session: 当前事务会话，调用者已锁定设备。
+        request: 已校验的分钟结果。
+        device: 上报设备。
+        source: 已校验的源 IP。
+        targets_by_ip: 已加载的目标 IP 记录。
+    返回:
+        按事件类型分组、待事务提交后发送的微信通知。
+    """
+    mode_code = PROBE_MODE_CODES[request.probe_mode]
+    states = {
+        (state.target_ip_id, state.protocol_type): state
+        for state in session.scalars(
+            select(ProbeAlertState).where(
+                ProbeAlertState.source_ip_id == source.id,
+                ProbeAlertState.probe_mode == mode_code,
+            ).with_for_update()
+        ).all()
+    }
+    user = session.get(User, device.user_id)
+    accepts = bool(user and user.openid and _accepts_probe_mode(user, request.probe_mode))
+    groups = {}
+    for target_result in request.targets:
+        target = targets_by_ip[str(target_result.target_ip)]
+        for protocol, protocol_code in PROTOCOL_CODES.items():
+            result = getattr(target_result, protocol)
+            if result is None:
                 continue
-            if alert.loss_rate <= ALERT_LOSS_RATE_THRESHOLD:
+            state = states.get((target.id, protocol_code))
+            if state is None:
+                state = ProbeAlertState(
+                    source_ip_id=source.id,
+                    target_ip_id=target.id,
+                    probe_mode=mode_code,
+                    protocol_type=protocol_code,
+                    is_firing=False,
+                    abnormal_count=0,
+                    normal_count=0,
+                    last_window_at=0,
+                )
+                session.add(state)
+            event_kind = _advance_probe_alert_state(
+                state, request.unix_timestamp, result.loss_rate
+            )
+            if event_kind is None:
                 continue
-            if alert.source_ip.version != alert.ip_version:
-                raise ValueError("source_ip 与 ip_version 不匹配")
-            device = devices_by_external_id.get(alert.device_id)
-            if device is None:
-                raise ValueError("设备未绑定")
-            source = ips_by_address.get(str(alert.source_ip))
-            if (
-                source is None
-                or source.ip_version != alert.ip_version
-                or source.device_related_id != device.id
-            ):
-                raise ValueError("source_ip 不属于当前设备")
-            if alert.target_ip.version != alert.ip_version:
-                raise ValueError("target_ip 与 ip_version 不匹配")
-            target = _validate_probe_target(
-                device,
-                source,
-                ips_by_address.get(str(alert.target_ip)),
-                alert.probe_mode,
-            )
-            message = (
-                f"{alert.probe_mode} {alert.protocol_type} 分钟丢包: "
-                f"{alert.source_ip} -> {alert.target_ip}"
-            )
-            event = AlertEvent(
-                event_id=alert.event_id,
+            # 记录事件决策时间；微信发送仍在事务外执行。
+            state.last_notified_at = request.unix_timestamp
+            session.add(AlertEvent(
+                event_id=str(uuid4()),
                 device_related_id=device.id,
                 source_ip_id=source.id,
                 target_ip_id=target.id,
-                protocol_type=PROTOCOL_CODES[alert.protocol_type],
-                probe_mode=PROBE_MODE_CODES[alert.probe_mode],
-                occurred_at=alert.unix_timestamp,
-                message=message,
-            )
-            session.add(event)
-            existing_event_ids.add(alert.event_id)
-            user = users_by_id.get(device.user_id)
-            if user is None:
-                continue
-            openid = user.openid
-            if not openid or not _accepts_probe_mode(user, alert.probe_mode):
-                continue
-            probe_type = (
-                f"{PROBE_MODE_NAMES[alert.probe_mode]} "
-                f"{alert.protocol_type.upper()}"
-            )
-            group_key = (
-                openid,
-                str(alert.source_ip),
-                alert.probe_mode,
-                alert.protocol_type,
-                alert.unix_timestamp,
-            )
-            group = template_groups.setdefault(
-                group_key,
-                _AlertTemplateGroup(
-                    openid=openid,
-                    source_ip=str(alert.source_ip),
-                    probe_type=probe_type,
-                    unix_timestamp=alert.unix_timestamp,
+                protocol_type=protocol_code,
+                probe_mode=mode_code,
+                occurred_at=request.unix_timestamp,
+                message=(
+                    f"{ALERT_EVENT_NAMES[event_kind]}: {request.probe_mode} {protocol} "
+                    f"{source.ip} -> {target.ip}，丢包率 {result.loss_rate / 10:.1f}%"
                 ),
+            ))
+            if not accepts:
+                continue
+            group_key = (
+                user.openid, source.ip, request.probe_mode, protocol,
+                request.unix_timestamp, event_kind,
             )
-            group.add_alert(
-                format_probe_node_name(target.province, target.isp),
-                alert.loss_rate,
-            )
-        session.flush()
-    return _build_template_messages(template_groups)
-
-
-async def save_probe_alerts(request: ProbeAlertsRequest) -> None:
-    """在线程池持久化告警，并在事务外发送微信模板消息。
-
-    参数:
-        request: Agent 上报的自然分钟聚合丢包告警。
-    返回:
-        无返回值；批次中已存在的 event_id 视为成功且不重复通知。
-    """
-    messages = await run_in_threadpool(_save_probe_alert_events, request)
-    await send_template_messages(messages)
+            group = groups.setdefault(group_key, _AlertTemplateGroup(
+                openid=user.openid,
+                source_ip=source.ip,
+                probe_type=f"{PROBE_MODE_NAMES[request.probe_mode]} {protocol.upper()}",
+                unix_timestamp=request.unix_timestamp,
+                event_kind=event_kind,
+            ))
+            group.add_alert(format_probe_node_name(target.province, target.isp), result.loss_rate)
+    return _build_template_messages(groups)

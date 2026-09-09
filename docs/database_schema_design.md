@@ -108,11 +108,11 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 
 ### 7.7 `alert_events`
 
-告警事件按自然分钟、源地址、目标地址、协议和分类聚合保存；一个聚合维度在同一窗口内最多保存一条记录。
+新增记录仅保存中央服务状态机产生的故障、提醒、恢复事件，按用户设置通知。原有 Agent 分钟事件历史记录保留。
 
 | 字段              | 数据类型        | 键                   | 说明                                           |
 | ----------------- | --------------- | -------------------- | ---------------------------------------------- |
-| `event_id`      | `VARCHAR(36)` | `PK`               | Agent 生成的事件唯一标识，同时作为告警幂等键   |
+| `event_id`      | `VARCHAR(36)` | `PK`               | Agent 或中央服务生成的 UUID，同时作为事件幂等键   |
 | `device_related_id` | `INT`       | `NOT NULL`, `FK → devices.id` | 上报该告警事件的设备内部主键       |
 | `source_ip_id`  | `INT`         | - | 发起探测的源公网 IP 记录 ID（逻辑关联）          |
 | `target_ip_id`  | `INT`         | - | 发生丢包的目标公网 IP 记录 ID（逻辑关联）        |
@@ -121,7 +121,21 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `occurred_at`   | `INT64`       | -                    | 自然分钟窗口结束时间，Unix 时间戳，单位秒      |
 | `message`       | `TEXT`        | -                    | 包含分类、协议及源目标地址的告警事件摘要       |
 
-中央服务根据告警中的 `device_id` 查询已绑定设备，将其内部主键写入 `device_related_id`，并结合 `source_ip` 查询归属匹配的 `ip_dict.id` 写入 `source_ip_id`；根据全局唯一的 `target_ip` 查询目标 `ip_dict.id` 写入 `target_ip_id`，同时校验目标不属于当前设备、两条 IP 记录的版本均等于上报的 `ip_version`，再将 `unix_timestamp` 写入 `occurred_at`。目标 IP 不要求关联设备。API 中的 `protocol_type` 和 `probe_mode` 转换为对应数值编码，`ip_version` 通过查询关联 IP 记录校验。事件记录始终保存 `message`；发送服务号模板消息时，中央服务直接通过 `alert_events.device_related_id` 查询 `devices.user_id`，再查询对应用户的 `openid`、关注状态和 `alert_type`，仅向仍关注且告警类型匹配的用户发送通知。`alert_type=0` 时告警事件仍正常保存，但不发送任何服务号模板消息。
+事件经设备归属、目标和分类校验后入库；中央服务事件的 `message` 包含事件类型和丢包率。
+
+#### `probe_alert_states`
+
+持久化跨分钟告警状态，联合主键为 `(source_ip_id, target_ip_id, probe_mode, protocol_type)`。
+
+| 字段 | 数据类型 | 说明 |
+| --- | --- | --- |
+| `source_ip_id`、`target_ip_id` | `INT NOT NULL` | 源、目标 IP 逻辑关联 |
+| `probe_mode`、`protocol_type` | `INT NOT NULL` | 分类、协议编码，同事件表 |
+| `is_firing` | `BOOL NOT NULL` | 是否已确认故障 |
+| `abnormal_count`、`normal_count` | `INT NOT NULL` | 连续异常、正常窗口数，上限 2 |
+| `fault_started_at` | `BIGINT NULL` | 故障开始时间，恢复后清空 |
+| `last_notified_at` | `BIGINT NULL` | 最近通知决策时间，不代表送达 |
+| `last_window_at` | `BIGINT NOT NULL` | 最后处理窗口，用于去重和连续性判断 |
 
 ### 7.8 `on_demand_executions`
 

@@ -30,7 +30,7 @@
               <span class="min-w-0 truncate text-sm font-medium text-g-800">
                 {{ userInfo.userName }}
               </span>
-              <ElTag class="shrink-0" size="small" :type="userLevelConfig.type">
+              <ElTag class="user-level-tag shrink-0" size="small" :type="userLevelConfig.type">
                 {{ userLevelConfig.text }}
               </ElTag>
             </div>
@@ -38,6 +38,11 @@
           </div>
         </div>
         <ul class="py-4 mt-3 border-t border-g-300/80">
+          <li class="btn-item" @click="lockScreen">
+            <ArtSvgIcon icon="ri:lock-line" />
+            <span>{{ $t('topBar.user.lockScreen') }}</span>
+          </li>
+          <div class="w-full h-px my-2 bg-g-300/80"></div>
           <div class="log-out c-p" @click="loginOut">
             {{ $t('topBar.user.logout') }}
           </div>
@@ -52,6 +57,7 @@
   import { ElMessageBox } from 'element-plus'
   import { useUserStore } from '@/store/modules/user'
   import { getUserLevelConfig } from '@/utils/constants'
+  import { mittBus } from '@/utils/sys'
 
   defineOptions({ name: 'ArtUserMenu' })
 
@@ -61,6 +67,16 @@
   const { getUserInfo: userInfo } = storeToRefs(userStore)
   const userLevelConfig = computed(() => getUserLevelConfig(userInfo.value.userLevel))
   const userMenuPopover = ref()
+
+  /**
+   * 打开锁屏密码设置弹窗。
+   * @param 无参数。
+   * @returns 无返回值。
+   */
+  const lockScreen = (): void => {
+    closeUserMenu()
+    mittBus.emit('openLockScreen')
+  }
 
   /**
    * 用户登出确认
@@ -90,6 +106,10 @@
 
 <style scoped>
   @reference '@styles/core/tailwind.css';
+
+  .user-level-tag {
+    --el-tag-font-size: var(--art-user-level-font-size);
+  }
 
   @layer components {
     .btn-item {

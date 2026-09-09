@@ -20,12 +20,12 @@ from app.schemas.probe import (
 )
 from app.services.auth import get_current_user
 from app.services.network import IPLookupError
+from app.services.wechat import send_template_messages
 from app.services.probe import (
     discover_probe_targets,
     get_user_probe_report,
     get_user_probe_trend,
     list_user_probe_nodes,
-    save_probe_alerts,
     save_probe_result,
 )
 
@@ -144,17 +144,18 @@ async def get_probe_targets(
 async def receive_probe_result(
     request: ProbeResultRequest,
 ) -> ProbeAcceptedResponse:
-    """接收并持久化自然分钟探测结果。
+    """保存分钟结果、推进告警状态，并在事务提交后发送通知。
 
     参数:
         request: 一个分类、IP 版本和源地址的完整窗口结果。
     返回:
-        接收成功标志。
+        接收成功标志；通知失败时传播微信服务异常。
     """
     try:
-        await run_in_threadpool(save_probe_result, request)
+        messages = await run_in_threadpool(save_probe_result, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await send_template_messages(messages)
     return ProbeAcceptedResponse()
 
 
@@ -162,15 +163,11 @@ async def receive_probe_result(
 async def receive_probe_alerts(
     request: ProbeAlertsRequest,
 ) -> ProbeAcceptedResponse:
-    """接收并持久化自然分钟聚合丢包告警。
+    """兼容旧 Agent 的分钟告警请求，仅确认接收，不入库或通知。
 
     参数:
         request: Agent 生成的自然分钟聚合丢包告警。
     返回:
         接收成功标志。
     """
-    try:
-        await save_probe_alerts(request)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ProbeAcceptedResponse()
