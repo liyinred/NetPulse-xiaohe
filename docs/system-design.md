@@ -9,7 +9,7 @@
 | 技术栈   | Golang Agent、FastAPI 中央服务 |
 | 运行平台 | Linux                          |
 
-本项目用于在用户自有 Linux 服务器上持续探测异网和跨省网络质量，并支持用户对临时公网 IP 发起类似 ITDog 的按需查询。设备绑定成功后，Agent 自动查询异网与跨省目标，在相同 IP 版本内按 IP 去重，并执行 ICMP、TCP 及按在线能力启用的 UDP 探测。Agent 登录后监听 UDP 33434 并回复匹配的探测报文；中央服务仅在源、目标 IP 关联的 Agent 都在线时下发 UDP 能力。IPv4 只探测 IPv4，IPv6 只探测 IPv6；同一 IP 同时属于异网和跨省时只执行一次实际探测。每个整分钟窗口结束时，Agent 分组上报结果和丢包告警，未启用 UDP 的目标不产生 UDP 结果或告警。
+本项目用于在用户自有 Linux 服务器上持续探测异网和跨省网络质量，并支持用户对临时公网 IP 发起类似 ITDog 的按需查询。设备绑定成功后，Agent 自动查询异网与跨省目标，在相同 IP 版本内按 IP 去重，并执行 ICMP、TCP 及按在线能力启用的 UDP 探测。Agent 登录后监听 UDP 33434 并回复匹配的探测报文；中央服务仅在源、目标 IP 关联的 Agent 都在线时下发 UDP 能力。IPv4 只探测 IPv4，IPv6 只探测 IPv6；同一 IP 同时属于异网和跨省时只执行一次实际探测。每个整分钟窗口结束时，Agent 分组上报分钟结果，由中央服务生成告警；未启用 UDP 的目标不产生 UDP 结果。
 
 临时 IP 查询不要求目标安装 Agent，也不将目标伪装成设备。每个在线探测节点固定执行 ICMP 和 TCP；仅当临时目标 IP 关联的 Agent 同时在线时执行 UDP。未执行的 UDP 结果为 `null`，前端表格显示 `-`。两个用户在同一活动执行期间查询相同 IP 时可共享同一次实际节点探测。
 
@@ -32,7 +32,7 @@
 系统分为中央控制服务和 Linux Agent：
 
 - **中央服务**：负责微信回调、二维码生成、绑定管理、设备管理、用户告警类型设置、持续探测结果与告警事件接收、微信通知，以及临时 IP 校验和归属识别、在线探测节点选择、按需任务合并、任务下发、结果聚合和查询权限控制。
-- **Linux Agent**：负责终端交互、扫码绑定、异网与跨省目标查询、按需任务轮询、ICMP、UDP、TCP 探测，以及分钟探测结果、按需结果和丢包告警事件上报。
+- **Linux Agent**：负责终端交互、扫码绑定、异网与跨省目标查询、按需任务轮询、ICMP、UDP、TCP 探测，以及分钟探测结果和按需结果上报。
 
 ### 2.2 设备身份
 
@@ -45,7 +45,7 @@
 
 ### 2.3 结果与告警上报
 
-系统分别处理分钟探测结果和分钟聚合丢包告警。Agent 在每个整分钟窗口结束后，为每个结果或告警 HTTP 请求独立生成 `[0, 10s)` 的随机延迟。结果按 `device_id + probe_mode + ip_version + source_ip` 分组；ICMP、TCP 固定上报，UDP 仅在目标携带 `udp_enabled = true` 时上报和产生告警。中央服务只为非空协议结果写入对应状态表。结果接口负责推进跨分钟告警状态及生成微信通知；旧告警接口仅返回接收成功，不入库或通知。
+Agent 仅上报分钟探测结果。在每个整分钟窗口结束后，为每个结果 HTTP 请求独立生成 `[0, 10s)` 的随机延迟。结果按 `device_id + probe_mode + ip_version + source_ip` 分组；ICMP、TCP 固定上报，UDP 仅在目标携带 `udp_enabled = true` 时上报。中央服务只为非空协议结果写入对应状态表。结果接口负责推进跨分钟告警状态及生成微信通知；旧告警接口仅返回接收成功，不入库或通知。
 
 ### 2.4 持续探测与按需探测隔离
 
@@ -65,7 +65,7 @@ Agent 登录成功后主动监听当前可用地址族的 UDP 33434。持续目�
 flowchart LR
     User["用户终端"] --> Agent["Linux Agent"]
     User -->|"临时 IP 查询与结果查询"| API
-    Agent -->|"绑定、控制任务轮询、目标查询、分钟结果与告警事件"| API["中央控制服务"]
+    Agent -->|"绑定、控制任务轮询、目标查询、分钟结果"| API["中央控制服务"]
     Agent -->|"轮询按需任务、上报结果"| API
     API -->|"按分类与 IP 版本分组的目标 IP 列表"| Agent
     API -->|"临时 IP 按需探测任务"| Agent
@@ -101,8 +101,8 @@ flowchart LR
 | Scheduler      | 对齐自然分钟、校验目标上限、按 IP 版本合并去重并控制分钟边界 |
 | Task Poller    | 长轮询控制任务，并以轮询请求维持设备在线状态                 |
 | Probe Engine   | 统一调度 ICMP、UDP 和 TCP Driver                             |
-| Control Client | 绑定、目标查询、控制任务轮询、结果与告警事件上报             |
-| Local Buffer   | 中央服务不可用时暂存待发送的分钟结果、按需结果与告警事件     |
+| Control Client | 绑定、目标查询、控制任务轮询、结果上报             |
+| Local Buffer   | 中央服务不可用时暂存待发送的分钟结果与按需结果     |
 
 ## 4. 核心流程
 
@@ -193,7 +193,7 @@ Agent 提交 `device_id`、必填的 `source_ipv4`、可空的 `source_ipv6` 及
 
 - 列表名称唯一确定 IP 版本，目标项不返回 `ip_version`；Agent 必须校验 `public_ip` 的实际地址族，不匹配时拒绝调度。
 - 各列表按 `device_id`、`ip_dict.id` 升序返回并按 `ip_dict.id` 去重；不得返回 `user_id`、`openid` 或告警设置。
-- 同一 IP 可同时出现在同版本的两个分类列表中；Agent 保留其分类集合，合并后只探测一次，并将统计结果分别用于对应分类的结果和告警。
+- 同一 IP 可同时出现在同版本的两个分类列表中；Agent 保留其分类集合，合并后只探测一次，并将统计结果分别用于对应分类的结果上报。
 
 ### 4.4 整分钟窗口探测
 
@@ -370,7 +370,7 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 - **TCP Driver**：使用与 `ip_version` 对应的 `net.Dialer`，通过 `LocalAddr` 绑定 `source_ip` 后建立 TCP 连接，连接成功后立即关闭；connection refused 表示主机可达但端口未开放，应按成功探测记录 RTT 并单独分类，不计入丢包率，也不产生丢包告警。TCP timeout 或无法证明目标可达的错误计为丢包。
 - **UDP Responder/Driver**：Agent 登录后在可用地址族的 UDP 33434 通配地址上监听，收到 `netpulse` 后向来源回复相同 payload。Driver 由系统路由选择源地址，发送该 payload 并等待目标回复；只有来源 socket 和 payload 均匹配时记录 RTT，单纯发送成功或 ICMP Port Unreachable 不视为成功。
 
-各 Driver 只负责协议收发与单次结果分类。窗口调度、并发启动、统计汇总、结果上报和丢包告警由统一 Probe Engine 管理，避免为不同协议重复实现调度与上报逻辑。
+各 Driver 只负责协议收发与单次结果分类。窗口调度、并发启动、统计汇总和结果上报由统一 Probe Engine 管理，告警由中央服务根据分钟结果生成，避免为不同协议重复实现调度与上报逻辑。
 
 ## 6. 探测结果上报与告警
 
@@ -407,29 +407,9 @@ average_latency_ms = round(sum(successful_rtt_ms) / successful_count)
 
 中央服务以 `device_id + probe_mode + ip_version + source_ip + unix_timestamp` 处理幂等上报并校验源目标归属、版本、分类和公开状态。ICMP、TCP 固定写入对应状态表；`udp` 非空时才写入 `probe_state_udp`，各协议结果在同一次事务尝试中原子提交。若并发重复上报触发 MySQL `1062`，中央服务回滚当前事务并使用新事务重试一次：已有内容一致时视为成功，内容不一致时拒绝请求，其他完整性错误不重试。缺少 UDP 状态的常规报告由前端显示 `-`。
 
-### 6.2 分钟聚合丢包告警
+### 6.2 跨分钟告警
 
-已执行协议在自然分钟内发生丢包时，Agent 按目标分类生成分钟告警；同一目标属于两个分类时复用探测但分别投影告警。未启用 UDP 的目标不生成 UDP 告警，TCP connection refused 仍按成功处理。
-
-```json
-{
-  "alerts": [
-    {
-      "event_id": "018f6c2e-7c45-7a9b-9ca1-2bd56f5d9310",
-      "device_id": "source-device-id",
-      "probe_mode": "cross_isp",
-      "ip_version": 4,
-      "source_ip": "198.51.100.10",
-      "target_ip": "203.0.113.20",
-      "protocol_type": "icmp",
-      "loss_rate": 100,
-      "unix_timestamp": 1785542460
-    }
-  ]
-}
-```
-
-`/probes/alerts` 仅返回接收成功，不再保存分钟丢包事件或发送微信。通知由 `/probes/results` 驱动，按源 IP、目标 IP、分类和协议维护状态：
+新 Agent 不再调用 `/probes/alerts`，仅通过 `/probes/results` 上报分钟结果。为兼容旧 Agent，`/probes/alerts` 仅返回接收成功，不再保存分钟丢包事件或发送微信。通知由 `/probes/results` 驱动，按源 IP、目标 IP、分类和协议维护状态：
 
 - 连续 2 分钟丢包率 >10%：首次告警；故障持续时每 15 分钟提醒。
 - 连续 2 分钟丢包率 ≤10%：恢复通知，不受冷却限制。

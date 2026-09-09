@@ -26,7 +26,7 @@ const (
 
 var protocolNames = []string{"icmp", "tcp", "udp"}
 
-// Engine 编排目标刷新、自然分钟探测和结果/告警上报。
+// Engine 编排目标刷新、自然分钟探测和结果上报。
 type Engine struct {
 	backend    *client.Backend
 	deviceID   string
@@ -139,7 +139,6 @@ func (engine *Engine) Run(ctx context.Context) error {
 		cancelRefresh()
 		engine.printWindowResults(windowStart, results)
 		engine.submitWindowResults(ctx, windowEnd.Unix(), results)
-		engine.submitWindowAlerts(ctx, windowEnd.Unix(), results)
 		if refreshErr != nil {
 			fmt.Fprintf(engine.output, "刷新探测目标失败，下一窗口沿用当前目标: %v\n", refreshErr)
 		} else {
@@ -494,85 +493,6 @@ func probeOnce(
 	}
 }
 
-// buildWindowAlerts 按目标、协议和分类生成自然分钟聚合告警。
-//
-// 参数:
-//   - deviceID: Agent 设备标识。
-//   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
-//   - results: 当前自然分钟的探测统计。
-//
-// 返回值: 每个发生丢包的聚合维度对应一条告警。
-func buildWindowAlerts(
-	deviceID string,
-	windowEnd int64,
-	results []sourceWindowResult,
-) []client.ProbeAlertRequest {
-	alerts := make([]client.ProbeAlertRequest, 0)
-	for _, result := range results {
-		for _, targetStats := range result.stats {
-			protocols := []struct {
-				name  string
-				stats protocolStats
-			}{
-				{name: "icmp", stats: targetStats.icmp},
-				{name: "tcp", stats: targetStats.tcp},
-				{name: "udp", stats: targetStats.udp},
-			}
-			for _, protocol := range protocols {
-				if protocol.name == "udp" && !targetStats.target.UDPEnabled {
-					continue
-				}
-				if protocol.stats.attempted == protocol.stats.succeeded {
-					continue
-				}
-				lossRate := summarize(protocol.stats).LossRate
-				for _, mode := range targetStats.target.Modes {
-					alerts = append(alerts, client.ProbeAlertRequest{
-						EventID:       generateEventID(),
-						DeviceID:      deviceID,
-						ProbeMode:     mode,
-						IPVersion:     result.version,
-						SourceIP:      result.source.String(),
-						TargetIP:      targetStats.target.Address.String(),
-						ProtocolType:  protocol.name,
-						LossRate:      lossRate,
-						UnixTimestamp: windowEnd,
-					})
-				}
-			}
-		}
-	}
-	return alerts
-}
-
-// submitWindowAlerts 异步上报一个自然分钟内的聚合丢包告警。
-//
-// 参数:
-//   - ctx: 控制随机延迟等待和 HTTP 请求取消的 Context。
-//   - windowEnd: 自然分钟窗口结束 Unix 时间戳。
-//   - results: 当前自然分钟的探测统计。
-//
-// 返回值: 无；没有丢包时不发起请求。
-func (engine *Engine) submitWindowAlerts(
-	ctx context.Context,
-	windowEnd int64,
-	results []sourceWindowResult,
-) {
-	alerts := buildWindowAlerts(engine.deviceID, windowEnd, results)
-	if len(alerts) == 0 {
-		return
-	}
-	request := client.ProbeAlertsRequest{Alerts: alerts}
-	engine.submitWithJitter(
-		ctx,
-		windowEnd,
-		"分钟聚合告警上报失败",
-		func(submitContext context.Context) error {
-			return engine.backend.SubmitProbeAlerts(submitContext, request)
-		},
-	)
-}
-
 // submitWindowResults 将统计按目标分类投影并异步上报。
 //
 // 参数:
@@ -757,21 +677,4 @@ func waitUntil(ctx context.Context, plannedAt time.Time) error {
 	case <-timer.C:
 		return nil
 	}
-}
-
-// generateEventID 使用加密安全随机数生成 UUID v4 告警标识。
-//
-// 参数: 无。
-// 返回值: 36 字符 UUID；随机源失败时返回零值格式 UUID。
-func generateEventID() string {
-	value := make([]byte, 16)
-	if _, err := rand.Read(value); err != nil {
-		return "00000000-0000-4000-8000-000000000000"
-	}
-	value[6] = (value[6] & 0x0f) | 0x40
-	value[8] = (value[8] & 0x3f) | 0x80
-	return fmt.Sprintf(
-		"%x-%x-%x-%x-%x",
-		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16],
-	)
 }

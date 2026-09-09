@@ -58,24 +58,6 @@ type ProbeResultRequest struct {
 	Targets       []TargetResult `json:"targets"`
 }
 
-// ProbeAlertRequest 保存一个目标和协议的分钟丢包告警。
-type ProbeAlertRequest struct {
-	EventID       string `json:"event_id"`
-	DeviceID      string `json:"device_id"`
-	ProbeMode     string `json:"probe_mode"`
-	IPVersion     int    `json:"ip_version"`
-	SourceIP      string `json:"source_ip"`
-	TargetIP      string `json:"target_ip"`
-	ProtocolType  string `json:"protocol_type"`
-	LossRate      int    `json:"loss_rate"`
-	UnixTimestamp int64  `json:"unix_timestamp"`
-}
-
-// ProbeAlertsRequest 保存一个自然分钟内的聚合丢包告警。
-type ProbeAlertsRequest struct {
-	Alerts []ProbeAlertRequest `json:"alerts"`
-}
-
 type probeAcceptedResponse struct {
 	Accepted bool `json:"accepted"`
 }
@@ -209,20 +191,6 @@ func (backend *Backend) SubmitProbeResult(
 	return backend.submitProbePayload(ctx, "/probes/results", result)
 }
 
-// SubmitProbeAlerts 上报一个自然分钟内的聚合丢包告警。
-//
-// 参数:
-//   - ctx: 控制请求取消的 Context。
-//   - alerts: 当前自然分钟的聚合丢包告警。
-//
-// 返回值: 中央服务接受请求时返回 nil，否则返回错误。
-func (backend *Backend) SubmitProbeAlerts(
-	ctx context.Context,
-	alerts ProbeAlertsRequest,
-) error {
-	return backend.submitProbePayload(ctx, "/probes/alerts", alerts)
-}
-
 // PollOnDemandTask 长轮询并领取当前设备的一个按需探测任务。
 //
 // 参数:
@@ -296,7 +264,7 @@ func (backend *Backend) SubmitMTRResult(ctx context.Context, result MTRResultReq
 // 参数:
 //   - ctx: 控制请求取消的 Context。
 //   - path: 中央服务探测接口路径。
-//   - payload: 结果或告警请求体。
+//   - payload: 探测结果请求体。
 //
 // 返回值: 请求被中央服务接受时返回 nil，否则返回错误。
 func (backend *Backend) submitProbePayload(
