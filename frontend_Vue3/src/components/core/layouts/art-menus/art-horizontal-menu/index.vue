@@ -1,6 +1,7 @@
 <!-- 水平菜单 -->
 <template>
-  <nav class="horizontal-menu-shell overflow-hidden" aria-label="主导航">
+  <nav ref="menuShellRef" class="horizontal-menu-shell overflow-hidden" aria-label="主导航">
+    <div class="slider-indicator" :style="sliderStyle" aria-hidden="true" />
     <ElMenu
       :ellipsis="false"
       mode="horizontal"
@@ -40,6 +41,17 @@
   }
 
   const route = useRoute()
+  const menuShellRef = ref<HTMLElement | null>(null)
+
+  const sliderState = reactive({
+    width: 0,
+    height: 0,
+    transform: 'translate3d(0, 0, 0)',
+    visible: false
+  })
+
+  let resizeObserver: ResizeObserver | null = null
+  let updateFrame: number | null = null
 
   const props = withDefaults(defineProps<Props>(), {
     list: () => []
@@ -58,6 +70,99 @@
    * 用于菜单高亮显示
    */
   const routerPath = computed(() => String(route.meta.activePath || route.path))
+
+  /**
+   * 生成滑动指示器的定位样式
+   * @returns 指示器的尺寸、位置和透明度样式
+   */
+  const sliderStyle = computed(() => ({
+    width: `${sliderState.width}px`,
+    height: `${sliderState.height}px`,
+    transform: sliderState.transform,
+    opacity: sliderState.visible ? 1 : 0
+  }))
+
+  /**
+   * 将滑动指示器对齐到当前激活的一级菜单
+   * @returns 无返回值
+   */
+  const updateSliderPosition = (): void => {
+    const shellElement = menuShellRef.value
+    if (!shellElement) return
+
+    const activeElement = shellElement.querySelector<HTMLElement>(
+      '.el-menu--horizontal > .el-menu-item.is-active, .el-menu--horizontal > .el-sub-menu.is-active > .el-sub-menu__title'
+    )
+
+    if (!activeElement) {
+      sliderState.visible = false
+      return
+    }
+
+    const shellRect = shellElement.getBoundingClientRect()
+    const activeRect = activeElement.getBoundingClientRect()
+
+    sliderState.width = activeRect.width
+    sliderState.height = activeRect.height
+    sliderState.transform = `translate3d(${activeRect.left - shellRect.left}px, ${activeRect.top - shellRect.top}px, 0)`
+    sliderState.visible = true
+  }
+
+  /**
+   * 在下一帧更新滑动指示器，合并连续的尺寸变化
+   * @returns 无返回值
+   */
+  const scheduleSliderUpdate = (): void => {
+    if (updateFrame !== null) return
+
+    updateFrame = window.requestAnimationFrame(() => {
+      updateFrame = null
+      updateSliderPosition()
+    })
+  }
+
+  /**
+   * 监听菜单容器和一级菜单项的尺寸变化
+   * @returns 无返回值
+   */
+  const observeMenuSize = (): void => {
+    resizeObserver?.disconnect()
+
+    const shellElement = menuShellRef.value
+    const menuElement = shellElement?.querySelector<HTMLElement>('.el-menu--horizontal')
+    if (!shellElement || !menuElement) return
+
+    resizeObserver = new ResizeObserver(scheduleSliderUpdate)
+    resizeObserver.observe(shellElement)
+    resizeObserver.observe(menuElement)
+    Array.from(menuElement.children).forEach((element) => resizeObserver?.observe(element))
+  }
+
+  /**
+   * 在路由或菜单数据变化后重新绑定尺寸监听并更新指示器
+   * @returns 无返回值
+   */
+  const handleMenuChange = async (): Promise<void> => {
+    await nextTick()
+    observeMenuSize()
+    scheduleSliderUpdate()
+  }
+
+  /**
+   * 释放滑动指示器的尺寸监听和动画帧
+   * @returns 无返回值
+   */
+  const cleanupSliderObserver = (): void => {
+    resizeObserver?.disconnect()
+    if (updateFrame !== null) {
+      window.cancelAnimationFrame(updateFrame)
+    }
+  }
+
+  watch([routerPath, () => props.list], handleMenuChange, { deep: true, flush: 'post' })
+
+  onMounted(handleMenuChange)
+  onBeforeUnmount(cleanupSliderObserver)
 
   /**
    * 递归过滤菜单项，移除隐藏的菜单
@@ -92,6 +197,7 @@
 
 <style lang="scss" scoped>
   .horizontal-menu-shell {
+    position: relative;
     box-sizing: border-box;
     height: var(--art-header-menu-height);
     padding: var(--art-header-menu-shell-padding);
@@ -101,9 +207,29 @@
     box-shadow: var(--art-header-surface-shadow);
   }
 
+  .slider-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    box-sizing: border-box;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--theme-color) 8%, var(--default-box-color));
+    border: 1px solid color-mix(in srgb, var(--theme-color) 55%, var(--default-border));
+    border-radius: calc(var(--custom-radius) + 6px);
+    box-shadow: var(--art-header-menu-indicator-shadow);
+    will-change: width, transform, opacity;
+    transition:
+      width var(--art-header-menu-indicator-duration) var(--art-header-menu-indicator-easing),
+      transform var(--art-header-menu-indicator-duration) var(--art-header-menu-indicator-easing),
+      opacity 0.2s ease;
+  }
+
   :deep(.horizontal-menu) {
     --el-menu-horizontal-height: var(--art-header-menu-item-height);
 
+    position: relative;
+    z-index: 1;
     gap: var(--art-header-menu-item-gap);
     height: var(--art-header-menu-item-height);
     border-bottom: none !important;
@@ -124,8 +250,8 @@
       border-color 0.2s ease;
   }
 
-  :deep(.el-menu--horizontal > .el-menu-item:hover),
-  :deep(.el-menu--horizontal > .el-sub-menu:hover > .el-sub-menu__title) {
+  :deep(.el-menu--horizontal > .el-menu-item:not(.is-active):hover),
+  :deep(.el-menu--horizontal > .el-sub-menu:not(.is-active):hover > .el-sub-menu__title) {
     color: var(--theme-color) !important;
     background: var(--art-hover-color) !important;
   }
@@ -133,8 +259,8 @@
   :deep(.el-menu--horizontal > .el-menu-item.is-active),
   :deep(.el-menu--horizontal > .el-sub-menu.is-active > .el-sub-menu__title) {
     color: var(--theme-color) !important;
-    background: color-mix(in srgb, var(--theme-color) 8%, var(--default-box-color)) !important;
-    border-color: color-mix(in srgb, var(--theme-color) 55%, var(--default-border)) !important;
+    background: transparent !important;
+    border-color: transparent !important;
   }
 
   :deep(.el-menu--horizontal > .el-menu-item.is-active .art-svg-icon),
@@ -165,6 +291,12 @@
     :deep(.el-menu--horizontal > .el-sub-menu > .el-sub-menu__title) {
       padding-right: var(--art-header-menu-item-compact-padding) !important;
       padding-left: var(--art-header-menu-item-compact-padding) !important;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slider-indicator {
+      transition: none;
     }
   }
 </style>

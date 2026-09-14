@@ -32,6 +32,10 @@
   --art-header-menu-item-compact-padding: 10px;
   --art-header-menu-submenu-padding: 28px;
   --art-header-menu-arrow-offset: 10px;
+  --art-header-menu-indicator-duration: 350ms;
+  --art-header-menu-indicator-easing: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --art-header-menu-indicator-shadow: 0 4px 14px
+    color-mix(in srgb, var(--theme-color) 10%, transparent);
   --art-header-surface-shadow: 0 4px 16px rgb(0 0 0 / 6%);
   --art-header-control-shadow: 0 2px 8px rgb(0 0 0 / 4%);
 
