@@ -2,7 +2,6 @@
 package app
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -11,7 +10,6 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"netpulse/terminal-agent/internal/client"
@@ -29,15 +27,14 @@ const (
 	logFileName     = "netpulse-agent.log"
 )
 
-// Run 先检查公网直连资格，再配置防火墙、更新设备绑定并按用户确认启动探测。
+// Run 先检查公网直连资格，再配置防火墙、更新设备绑定并启动完整探测。
 //
 // 参数:
 //   - ctx: 控制 Agent 退出的 Context。
-//   - input: 接收持续探测确认输入的 Reader。
 //   - output: 输出二维码和运行状态的 Writer。
 //
 // 返回值: 流程成功时返回 nil，否则返回具体错误。
-func Run(ctx context.Context, input io.Reader, output io.Writer) error {
+func Run(ctx context.Context, output io.Writer) error {
 	fmt.Fprintln(output, "NetPulse Agent 正在初始化...")
 	configPath, err := config.ExecutablePath()
 	if err != nil {
@@ -150,20 +147,12 @@ func Run(ctx context.Context, input io.Reader, output io.Writer) error {
 		}
 	}()
 
-	confirmed, err := confirmContinuousProbe(input, output)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		fmt.Fprintln(output, "已选择按需任务模式。Agent 将保持在线，等待即时 IP 探测与双向 MTR 任务。")
-		return onDemandRunner.Run(ctx)
-	}
 	go func() {
 		if runnerErr := onDemandRunner.Run(ctx); runnerErr != nil && ctx.Err() == nil {
 			fmt.Fprintf(output, "即时 IP 探测轮询已停止: %v\n", runnerErr)
 		}
 	}()
-	fmt.Fprintln(output, "已选择完整探测模式，正在获取异网和跨省探测目标...")
+	fmt.Fprintln(output, "已启动完整探测模式，正在获取异网和跨省探测目标...")
 	probeEngine := probe.NewEngine(
 		backend,
 		deviceID,
@@ -187,40 +176,6 @@ func openLogFile(configPath string) (*os.File, error) {
 		return nil, fmt.Errorf("创建日志文件失败: %w", err)
 	}
 	return logFile, nil
-}
-
-// confirmContinuousProbe 显示数字选项并监听用户输入。
-//
-// 参数:
-//   - input: 接收终端输入的 Reader。
-//   - output: 输出提示和格式错误信息的 Writer。
-//
-// 返回值: 输入 1 时返回 True，输入 0 时返回 False；读取失败时返回错误。
-func confirmContinuousProbe(input io.Reader, output io.Writer) (bool, error) {
-	reader := bufio.NewReader(input)
-	for {
-		if _, err := fmt.Fprint(
-			output,
-			"\n请选择 Agent 运行模式：\n"+
-				"  0. 按需任务模式：执行即时 IP 探测与双向 MTR\n"+
-				"  1. 完整探测模式：在按需任务基础上，持续执行异网与跨省探测\n"+
-				"请输入选项（0 或 1）： ",
-		); err != nil {
-			return false, fmt.Errorf("输出持续探测提示失败: %w", err)
-		}
-		answer, err := reader.ReadString('\n')
-		answer = strings.TrimSpace(answer)
-		if answer == "1" {
-			return true, nil
-		}
-		if answer == "0" {
-			return false, nil
-		}
-		if err != nil {
-			return false, fmt.Errorf("读取持续探测确认失败: %w", err)
-		}
-		fmt.Fprintln(output, "输入无效，请输入 0 或 1。")
-	}
 }
 
 // printBindingInfo 在终端展示绑定成功后的设备和网络信息。

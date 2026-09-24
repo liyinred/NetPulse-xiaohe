@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.user import User
 from app.schemas.bidirectional_mtr import CreateMTRRequest, CreateMTRResponse, MTRAcceptedResponse, MTRAgentTaskResponse, MTRDeviceListResponse, MTRResultRequest, MTRTaskResultResponse
+from app.schemas.user import UserLevel
 from app.services.auth import get_current_user
 from app.services.mtr_metadata import enrich_mtr_result
 from app.services.bidirectional_mtr import claim_mtr_task, create_mtr_task, get_mtr_result, list_mtr_devices, save_mtr_result
@@ -19,19 +20,19 @@ web_router = APIRouter(prefix="/api/bidirectional-mtr", tags=["双向 MTR"])
 
 @web_router.get("/devices", response_model=MTRDeviceListResponse)
 def get_available_devices(user: Annotated[User, Depends(get_current_user)]) -> MTRDeviceListResponse:
-    """获取当前用户可用于双向 MTR 的在线设备。
+    """获取可选在线设备，高级用户和管理员可获取全部节点。
 
     参数:
         user: JWT 认证依赖解析出的当前用户。
     返回:
         设备与其有效公开公网 IP 列表。
     """
-    return MTRDeviceListResponse(data=list_mtr_devices(user.id))
+    return MTRDeviceListResponse(data=list_mtr_devices(user.id, user.user_level >= UserLevel.PREMIUM))
 
 
 @web_router.post("", response_model=CreateMTRResponse)
 def create_user_mtr_task(request: CreateMTRRequest, user: Annotated[User, Depends(get_current_user)]) -> CreateMTRResponse:
-    """创建当前用户选择设备间的双向 MTR 任务。
+    """按用户权限创建所选设备间的双向 MTR 任务。
 
     参数:
         request: 两台设备和两个公网 IP 的选择。
@@ -40,7 +41,7 @@ def create_user_mtr_task(request: CreateMTRRequest, user: Annotated[User, Depend
         新建主任务标识与初始状态。
     """
     try:
-        data = create_mtr_task(user.id, request.sourceDeviceId, request.sourceIpId, request.targetDeviceId, request.targetIpId)
+        data = create_mtr_task(user.id, request.sourceDeviceId, request.sourceIpId, request.targetDeviceId, request.targetIpId, user.user_level >= UserLevel.PREMIUM)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return CreateMTRResponse(data=data)

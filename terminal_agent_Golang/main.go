@@ -19,7 +19,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := app.Run(ctx, os.Stdin, os.Stdout); err != nil {
+	if err := app.Run(ctx, os.Stdout); err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return
 		}

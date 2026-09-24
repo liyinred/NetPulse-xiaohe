@@ -20,17 +20,21 @@ MTR_DEADLINE_SECONDS = 30
 STATUS_NAMES = {1: "queued", 2: "running", 3: "completed", 4: "partial_completed", 5: "failed"}
 
 
-def list_mtr_devices(user_id: int) -> list[MTRDevice]:
-    """查询当前用户在线且存在有效公开地址的节点。
+def list_mtr_devices(user_id: int, can_access_all_devices: bool) -> list[MTRDevice]:
+    """按用户等级查询可用的在线公开节点。
 
     参数:
         user_id: 当前登录用户主键。
+        can_access_all_devices: 是否允许查询所有用户的节点。
     返回:
         可创建双向 MTR 的节点名称与其地址列表。
     """
     now = int(time.time())
     with SessionLocal() as session:
-        rows = session.execute(select(Device, IPDict).join(IPDict, IPDict.device_related_id == Device.id).where(Device.user_id == user_id, Device.device_id.is_not(None), Device.last_seen_at.is_not(None), Device.last_seen_at >= now - DEVICE_ONLINE_SECONDS, IPDict.public_status == 1).order_by(Device.id, IPDict.id)).all()
+        statement = select(Device, IPDict).join(IPDict, IPDict.device_related_id == Device.id).where(Device.device_id.is_not(None), Device.last_seen_at.is_not(None), Device.last_seen_at >= now - DEVICE_ONLINE_SECONDS, IPDict.public_status == 1)
+        if not can_access_all_devices:
+            statement = statement.where(Device.user_id == user_id)
+        rows = session.execute(statement.order_by(Device.id, IPDict.id)).all()
         devices: dict[int, MTRDevice] = {}
         for device, address in rows:
             try:
@@ -51,7 +55,7 @@ def list_mtr_devices(user_id: int) -> list[MTRDevice]:
         return list(devices.values())
 
 
-def create_mtr_task(user_id: int, source_device_id: int, source_ip_id: int, target_device_id: int, target_ip_id: int) -> CreateMTRData:
+def create_mtr_task(user_id: int, source_device_id: int, source_ip_id: int, target_device_id: int, target_ip_id: int, can_access_all_devices: bool) -> CreateMTRData:
     """校验用户选择并创建两个关联的方向任务。
 
     参数:
@@ -60,6 +64,7 @@ def create_mtr_task(user_id: int, source_device_id: int, source_ip_id: int, targ
         source_ip_id: 设备 A 选择的 IP 主键。
         target_device_id: 设备 B 主键。
         target_ip_id: 设备 B 选择的 IP 主键。
+        can_access_all_devices: 是否允许使用其他用户的节点。
     返回:
         新建主任务标识和初始状态。
     """
@@ -67,8 +72,8 @@ def create_mtr_task(user_id: int, source_device_id: int, source_ip_id: int, targ
         raise ValueError("请选择两个不同的在线设备")
     now = int(time.time())
     with SessionLocal.begin() as session:
-        _, source_ip = _validate_endpoint(session, user_id, source_device_id, source_ip_id, now)
-        _, target_ip = _validate_endpoint(session, user_id, target_device_id, target_ip_id, now)
+        _, source_ip = _validate_endpoint(session, user_id, source_device_id, source_ip_id, now, can_access_all_devices)
+        _, target_ip = _validate_endpoint(session, user_id, target_device_id, target_ip_id, now, can_access_all_devices)
         if source_ip.ip_version != target_ip.ip_version:
             raise ValueError("两个设备必须选择相同地址族的公网 IP")
         task = BidirectionalMTRTask(user_id=user_id, status=1, created_at=now)
@@ -185,8 +190,8 @@ def get_mtr_result(user_id: int, task_id: int) -> MTRTaskResult:
         return MTRTaskResult(mtrTaskId=task.id, status=STATUS_NAMES[task.status], directions=result_directions)
 
 
-def _validate_endpoint(session: Session, user_id: int, device_id: int, ip_id: int, now: int) -> tuple[Device, IPDict]:
-    """校验用户设备、在线状态和所选公开公网地址。
+def _validate_endpoint(session: Session, user_id: int, device_id: int, ip_id: int, now: int, can_access_all_devices: bool) -> tuple[Device, IPDict]:
+    """按用户权限校验设备在线状态和所选公开公网地址。
 
     参数:
         session: 当前数据库事务会话。
@@ -194,10 +199,14 @@ def _validate_endpoint(session: Session, user_id: int, device_id: int, ip_id: in
         device_id: 所选设备主键。
         ip_id: 所选 IP 主键。
         now: 当前 Unix 秒级时间戳。
+        can_access_all_devices: 是否允许使用其他用户的节点。
     返回:
         校验通过的设备和 IP 记录。
     """
-    row = session.execute(select(Device, IPDict).join(IPDict, IPDict.device_related_id == Device.id).where(Device.id == device_id, Device.user_id == user_id, Device.device_id.is_not(None), Device.last_seen_at.is_not(None), Device.last_seen_at >= now - DEVICE_ONLINE_SECONDS, IPDict.id == ip_id, IPDict.public_status == 1)).first()
+    statement = select(Device, IPDict).join(IPDict, IPDict.device_related_id == Device.id).where(Device.id == device_id, Device.device_id.is_not(None), Device.last_seen_at.is_not(None), Device.last_seen_at >= now - DEVICE_ONLINE_SECONDS, IPDict.id == ip_id, IPDict.public_status == 1)
+    if not can_access_all_devices:
+        statement = statement.where(Device.user_id == user_id)
+    row = session.execute(statement).first()
     if row is None:
         raise ValueError("设备或公网 IP 不可用、已离线或不属于当前用户")
     device, address = row
