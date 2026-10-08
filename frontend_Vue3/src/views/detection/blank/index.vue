@@ -69,25 +69,19 @@
         </ElDescriptionsItem>
       </ElDescriptions>
 
+      <div class="mb-3 mt-6 flex flex-wrap items-center gap-2">
+        <h2 class="text-base font-medium text-g-900">
+          探测汇总<span v-if="reportData">（{{ reportRangeLabel }}）</span>
+        </h2>
+      </div>
       <ElTable
-        class="probe-report-table mt-4"
+        class="probe-report-table"
         :data="reportData?.rows ?? []"
         border
         empty-text="当前时间窗口暂无探测结果"
       >
         <ElTableColumn prop="provinceName" label="省份" />
         <ElTableColumn prop="ispName" label="运营商" />
-        <ElTableColumn label="覆盖情况">
-          <template #default="{ row }">
-            <span :class="{ 'text-amber-800 dark:text-amber-600': !row.isCrossIsp }">
-              {{ row.isCrossIsp ? '异网' : '同网' }}
-            </span>
-            /
-            <span :class="{ 'text-amber-800 dark:text-amber-600': !row.isCrossProvince }">
-              {{ row.isCrossProvince ? '跨省' : '同省' }}
-            </span>
-          </template>
-        </ElTableColumn>
         <ElTableColumn label="ICMP" align="center">
           <ElTableColumn label="平均丢包" align="right">
             <template #default="{ row }">
@@ -254,10 +248,12 @@
         :emphasize-axis="true"
         :compact-tooltip="true"
         :tooltip-font-size="chartTheme.tinyFontSize"
+        :tooltip-rows-per-column="14"
         :thicken-on-emphasis="false"
         :use-built-in-palette="true"
-        :legend-space="chartTheme.fontSize * 9"
-        :legend-font-size="chartTheme.tinyFontSize"
+        :legend-space="chartTheme.fontSize * 3"
+        :legend-font-size="chartTheme.compactLegendFontSize"
+        :legend-single-row="true"
         :legend-hover-link="false"
         :shift-legend-exclusive-select="true"
         legend-position="top"
@@ -313,6 +309,16 @@
    */
   const protocolTitle = computed(() => protocolType.value.toUpperCase())
   const metricTitle = computed(() => (metric.value === 'loss' ? '丢包率' : '平均延迟'))
+
+  /**
+   * 根据当前筛选条件生成汇总标题中的时间范围名称。
+   * @returns 最近天数或所选整月份的简短文案。
+   */
+  const reportRangeLabel = computed(() => {
+    if (rangeType.value === 'month') return `${Number(month.value.slice(5))}整月份`
+    const rangeLabels = { '1d': '最近1天', '2d': '最近2天', '7d': '最近7天' }
+    return rangeLabels[rangeType.value]
+  })
 
   const timeIds = computed(() => {
     if (!trendData.value) return []
@@ -539,7 +545,7 @@
   }
 
   /**
-   * 加载当前用户可访问的探测节点并默认选择第一个节点。
+   * 加载探测节点并默认选择首项，结束节点加载状态后刷新报告与趋势。
    * @returns 无返回值。
    */
   async function loadNodes(): Promise<void> {
@@ -547,10 +553,10 @@
     try {
       nodes.value = await fetchGetProbeNodes()
       sourceIpId.value = nodes.value[0]?.id
-      await loadProbeData()
     } finally {
       nodeLoading.value = false
     }
+    await loadProbeData()
   }
 
   /**

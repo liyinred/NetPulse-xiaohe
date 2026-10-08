@@ -157,8 +157,10 @@ class ProbePeriodReportRow(BaseModel):
 
 
 class ProbeReportData(BaseModel):
-    """保存当前节点和时间窗口的概括性覆盖报告。"""
+    """保存当前节点、统计时间范围及概括性覆盖报告。"""
 
+    startTime: int
+    endTime: int
     sourceProvinceName: str
     sourceIspName: str
     crossIspCovered: bool

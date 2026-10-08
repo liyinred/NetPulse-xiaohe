@@ -1,7 +1,7 @@
 import request from '@/utils/http'
 
 /**
- * 按当前用户等级获取可访问且已有结果的探测源节点。
+ * 按当前用户等级获取可访问设备关联的探测源节点。
  * @returns 探测节点列表。
  */
 export function fetchGetProbeNodes() {

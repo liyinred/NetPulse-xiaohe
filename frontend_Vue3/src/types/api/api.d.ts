@@ -153,8 +153,10 @@ declare namespace Api {
       udp: ProbeProtocolSummary | null
     }
 
-    /** 当前节点和时间窗口的概括性覆盖报告 */
+    /** 当前节点、统计时间范围及概括性覆盖报告 */
     interface ProbeReportData {
+      startTime: number
+      endTime: number
       sourceProvinceName: string
       sourceIspName: string
       crossIspCovered: boolean

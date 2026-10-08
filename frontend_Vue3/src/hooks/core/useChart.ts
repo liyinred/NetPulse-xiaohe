@@ -56,7 +56,7 @@ import { getCssVar } from '@/utils/ui'
 import type { BaseChartProps, ChartThemeConfig, UseChartOptions } from '@/types/component/chart'
 
 /**
- * 获取图表共享主题配置。
+ * 获取图表共享主题配置，包含紧凑图例字号。
  * @returns 图表尺寸、字体、线宽和颜色组配置。
  */
 export const useChartOps = (): ChartThemeConfig => ({
@@ -68,6 +68,8 @@ export const useChartOps = (): ChartThemeConfig => ({
   smallFontSize: 12,
   /** 极小字体大小 */
   tinyFontSize: 11,
+  /** 紧凑图例字体大小 */
+  compactLegendFontSize: 10,
   /** 默认折线宽度 */
   lineWidth: 2.5,
   /** 细折线宽度 */

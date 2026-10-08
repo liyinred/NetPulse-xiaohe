@@ -38,7 +38,7 @@ web_router = APIRouter(prefix="/api/probes", tags=["探测趋势"])
 def get_probe_nodes(
     user: Annotated[User, Depends(get_current_user)],
 ) -> ProbeNodesResponse:
-    """按用户等级查询可访问且已有结果的探测源节点。
+    """按用户等级查询可访问设备关联的探测源节点。
 
     参数:
         user: JWT 认证依赖解析出的当前用户。

@@ -127,21 +127,23 @@ def _get_user_probe_source_network(
     return source_record.province, source_record.isp
 
 
-def _exclude_icmp_full_loss(
+def _exclude_report_full_loss(
     statement: Select,
     state_model: type[ICMPProbeState] | type[TCPProbeState] | type[UDPProbeState],
 ) -> Select:
-    """从概览查询中排除 ICMP 全丢包样本及其对应的 TCP、UDP 样本。
+    """排除 ICMP 全丢包及其关联样本，同时排除 TCP 自身的全丢包样本。
 
     参数:
         statement: 尚未执行的协议聚合查询。
         state_model: 当前查询使用的协议状态模型。
     返回:
         按分钟、源 IP、目标 IP 和探测模式排除 ICMP 全丢包的查询；
-        无对应 ICMP 记录的 TCP、UDP 样本保留。
+        TCP 自身全丢包的样本也排除；无对应 ICMP 记录的其他样本保留。
     """
     if state_model is ICMPProbeState:
         return statement.where(state_model.loss_rate < 1000)
+    if state_model is TCPProbeState:
+        statement = statement.where(state_model.loss_rate < 1000)
     failed_icmp = select(ICMPProbeState.time_id).where(
         ICMPProbeState.time_id == state_model.time_id,
         ICMPProbeState.source_ip_id == state_model.source_ip_id,
@@ -165,7 +167,7 @@ def _build_probe_report(
     previous_day_date: str,
     previous_day_rows: list[ProbePeriodReportRow],
 ) -> ProbeReportData:
-    """按目标网络汇总时间窗口内的三协议结果，同步排除 ICMP 全丢包对应样本。
+    """按探测分类汇总三协议结果，排除 ICMP 全丢包关联样本及 TCP 全丢包样本。
 
     参数:
         session: 当前数据库会话。
@@ -180,7 +182,7 @@ def _build_probe_report(
         previous_day_date: 北京时间前一天的日期。
         previous_day_rows: 前一天全天及晚高峰的平均结果。
     返回:
-        覆盖概况及按省份、运营商聚合的三协议平均结果，延迟平均值排除 300ms 超时。
+        统计起止时间、覆盖概况及三协议平均结果，延迟平均值排除 300ms 超时。
     """
     rows_by_network: dict[tuple[int | None, int | None], ProbeReportRow] = {}
     for protocol_type, state_model in PROBE_STATE_MODELS.items():
@@ -206,7 +208,10 @@ def _build_probe_report(
             )
             .group_by(IPDict.province, IPDict.isp)
         )
-        statement = _exclude_icmp_full_loss(statement, state_model)
+        statement = _filter_probe_mode(
+            statement, source_province, source_isp, probe_mode
+        )
+        statement = _exclude_report_full_loss(statement, state_model)
         if user_level < UserLevel.PREMIUM:
             statement = statement.where(
                 state_model.device_related_id.in_(
@@ -247,6 +252,8 @@ def _build_probe_report(
     )
     covered_provinces = _apply_probe_report_coverage(rows)
     return ProbeReportData(
+        startTime=start_time,
+        endTime=end_time,
         sourceProvinceName=PROVINCE_NAMES.get(source_province, "未知"),
         sourceIspName=ISP_NAMES.get(source_isp, "未知"),
         crossIspCovered=any(row.isCovered and row.isCrossIsp for row in rows),
@@ -265,16 +272,20 @@ def _build_previous_day_report(
     user_id: int,
     user_level: int,
     source_ip_id: int,
+    source_province: int | None,
+    source_isp: int | None,
     probe_mode: int,
     current_time: int,
 ) -> tuple[str, list[ProbePeriodReportRow]]:
-    """按目标网络汇总前一天全天及晚高峰结果，同步排除 ICMP 全丢包对应样本。
+    """汇总昨日分时结果，排除 ICMP 全丢包关联样本及 TCP 全丢包样本。
 
     参数:
         session: 当前数据库会话。
         user_id: 当前登录用户的内部主键。
         user_level: 当前登录用户的等级。
         source_ip_id: 用户选择的源 IP 记录主键。
+        source_province: 源节点省份编码。
+        source_isp: 源节点运营商编码。
         probe_mode: 探测模式编码，1 为异网，2 为跨省。
         current_time: 用于确定前一天的 Unix 秒时间戳。
     返回:
@@ -335,7 +346,10 @@ def _build_previous_day_report(
             IPDict.province,
             IPDict.isp,
         )
-        statement = _exclude_icmp_full_loss(statement, state_model)
+        statement = _filter_probe_mode(
+            statement, source_province, source_isp, probe_mode
+        )
+        statement = _exclude_report_full_loss(statement, state_model)
         if user_level < UserLevel.PREMIUM:
             statement = statement.where(
                 state_model.device_related_id.in_(
@@ -508,7 +522,7 @@ def _is_valid_target_ip(ip_text: str, version: int) -> bool:
 
 
 def _matches_mode(source: IPDict, target: IPDict, mode: str) -> bool:
-    """判断源目标网络属性是否符合指定探测分类。
+    """判断源目标是否符合异网不同运营商或跨省同运营商的探测分类。
 
     参数:
         source: 源 IP 记录。
@@ -524,9 +538,40 @@ def _matches_mode(source: IPDict, target: IPDict, mode: str) -> bool:
             and source.isp != target.isp
         )
     return (
-        source.province not in (None, 1)
+        source.isp is not None
+        and target.isp is not None
+        and source.isp == target.isp
+        and source.province not in (None, 1)
         and target.province not in (None, 1)
         and source.province != target.province
+    )
+
+
+def _filter_probe_mode(
+    statement: Select,
+    source_province: int | None,
+    source_isp: int | None,
+    probe_mode: int,
+) -> Select:
+    """为已关联目标 IPDict 的结果查询添加探测分类条件。
+
+    参数:
+        statement: 已关联目标 IPDict、尚未执行的结果查询。
+        source_province: 源节点省份编码，1 表示未知省份。
+        source_isp: 源节点运营商编码。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+    返回:
+        异网仅保留不同运营商、跨省仅保留同运营商不同省份的查询。
+    """
+    if source_isp is None:
+        return statement.where(False)
+    if probe_mode == PROBE_MODE_CODES["cross_isp"]:
+        return statement.where(IPDict.isp != source_isp)
+    if source_province in (None, 1):
+        return statement.where(False)
+    return statement.where(
+        IPDict.isp == source_isp,
+        IPDict.province.not_in((1, source_province)),
     )
 
 
@@ -931,23 +976,19 @@ def list_user_probe_nodes(
     user_id: int,
     user_level: int,
 ) -> list[ProbeNodeItem]:
-    """按用户等级查询已有持续探测结果的源 IP 节点。
+    """按用户等级从设备及关联 IP 记录查询探测源节点，不读取探测结果表。
 
     参数:
         user_id: 当前登录用户的内部主键。
         user_level: 当前登录用户的等级，高级等级以上可查看全部节点。
     返回:
-        按 IP 版本和地址排序的已有结果探测节点列表。
+        按 IP 版本和地址排序的设备节点列表，包含尚无探测结果的节点。
     """
     with SessionLocal() as session:
         statement = (
             select(IPDict.id, IPDict.ip, IPDict.province, IPDict.isp)
-            .join(Device, IPDict.device_related_id == Device.id)
-            .where(
-                select(ICMPProbeState.source_ip_id)
-                .where(ICMPProbeState.source_ip_id == IPDict.id)
-                .exists(),
-            )
+            .select_from(Device)
+            .join(IPDict, IPDict.device_related_id == Device.id)
             .order_by(IPDict.ip_version, IPDict.ip)
         )
         if user_level < UserLevel.PREMIUM:
@@ -1048,6 +1089,8 @@ def get_user_probe_report(
             user_id,
             user_level,
             source_ip_id,
+            source_province,
+            source_isp,
             probe_mode,
             report_current_time,
         )
@@ -1076,7 +1119,7 @@ def get_user_probe_trend(
     month: str | None = None,
     current_time: int | None = None,
 ) -> ProbeTrendData:
-    """查询用户节点在指定探测模式和时间范围内的分钟趋势。
+    """查询符合异网或同运营商跨省规则的目标在指定范围内的分钟趋势。
 
     参数:
         user_id: 当前登录用户的内部主键。
@@ -1098,7 +1141,7 @@ def get_user_probe_trend(
     state_model = PROBE_STATE_MODELS[protocol_type]
 
     with SessionLocal() as session:
-        _get_user_probe_source_network(
+        source_province, source_isp = _get_user_probe_source_network(
             session,
             user_id,
             user_level,
@@ -1122,6 +1165,9 @@ def get_user_probe_trend(
                 state_model.time_id.between(start_time, end_time),
             )
             .order_by(IPDict.id, state_model.time_id)
+        )
+        statement = _filter_probe_mode(
+            statement, source_province, source_isp, probe_mode
         )
         if user_level < UserLevel.PREMIUM:
             statement = statement.where(

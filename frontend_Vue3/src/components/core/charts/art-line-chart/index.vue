@@ -54,6 +54,7 @@
     thickenOnEmphasis: true,
     useBuiltInPalette: false,
     legendHoverLink: true,
+    legendSingleRow: false,
     shiftLegendExclusiveSelect: false,
 
     // 轴线显示配置
@@ -254,7 +255,7 @@
   }
 
   /**
-   * 构建展示当前窗口全部系列的 tooltip。
+   * 按指标降序构建全部系列的 tooltip，并按配置条目数从左到右分列。
    * @param parameters ECharts 当前坐标轴的系列参数。
    * @returns 可由 ECharts 安全渲染的 DOM 节点。
    */
@@ -279,7 +280,20 @@
           return right.value - left.value || left.index - right.index
         })
 
-      sortedItems.forEach(({ item, index, value }) => {
+      const columns = document.createElement('div')
+      columns.className = 'flex gap-4'
+      container.appendChild(columns)
+      const rowsPerColumn = Math.max(
+        1,
+        Math.floor(props.tooltipRowsPerColumn ?? sortedItems.length)
+      )
+      let column: HTMLElement
+      sortedItems.forEach(({ item, index, value }, itemIndex) => {
+        if (itemIndex % rowsPerColumn === 0) {
+          column = document.createElement('div')
+          column.className = 'flex flex-col whitespace-nowrap'
+          columns.appendChild(column)
+        }
         const row = document.createElement('div')
         if (value === props.tooltipAlertValue) row.classList.add('text-danger')
         const seriesParameter = parameterList.find(
@@ -303,7 +317,7 @@
             `${item.name}: ${value === null || value === undefined ? '-' : `${value}${props.valueUnit}`}`
           )
         )
-        container.appendChild(row)
+        column.appendChild(row)
       })
     }
     return container
@@ -394,7 +408,10 @@
 
     // 添加图例配置
     if (props.showLegend && isMultipleData.value) {
-      const legendStyle = getLegendStyle(props.legendPosition)
+      const legendStyle = getLegendStyle(
+        props.legendPosition,
+        props.legendSingleRow ? { type: 'scroll' } : {}
+      )
       options.legend =
         props.legendFontSize === undefined
           ? legendStyle
@@ -619,6 +636,8 @@
       () => props.emphasizeAxis,
       () => props.emphasizeYAxisName,
       () => props.compactTooltip,
+      () => props.tooltipRowsPerColumn,
+      () => props.legendSingleRow,
       () => props.thickenOnEmphasis,
       () => props.legendHoverLink,
       () => props.shiftLegendExclusiveSelect
@@ -660,6 +679,8 @@
       () => props.emphasizeAxis,
       () => props.emphasizeYAxisName,
       () => props.compactTooltip,
+      () => props.tooltipRowsPerColumn,
+      () => props.legendSingleRow,
       () => props.thickenOnEmphasis,
       () => props.legendHoverLink,
       () => props.shiftLegendExclusiveSelect
