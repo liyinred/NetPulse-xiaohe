@@ -180,10 +180,14 @@ class ProbeReportResponse(BaseModel):
 
 
 class ProbeTrendData(BaseModel):
-    """保存指定查询范围及其中的目标 IP 趋势序列。"""
+    """保存指定查询范围、聚合粒度及其中的目标 IP 趋势序列。
+
+    数据点时间为按 intervalSeconds 对齐 Unix 时间戳的桶起点。
+    """
 
     startTime: int
     endTime: int
+    intervalSeconds: int
     series: list[ProbeTrendSeries]
 
 

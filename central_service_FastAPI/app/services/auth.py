@@ -13,12 +13,18 @@ from sqlalchemy import select
 from app.core.config import JWT_EXPIRE_MINUTES, JWT_SECRET_KEY
 from app.db.session import SessionLocal
 from app.models.user import User
+from app.schemas.user import UserLevel
 from app.services.device import find_scene_user_id
 
 
 JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "netpulse-central-service"
 bearer_scheme = HTTPBearer(auto_error=False)
+USER_LEVEL_ROLES = {
+    UserLevel.ADMIN: "R_ADMIN",
+    UserLevel.PREMIUM: "R_PREMIUM",
+}
+DEFAULT_USER_ROLE = "R_USER"
 
 
 def create_access_token(user_id: int) -> str:
@@ -108,6 +114,32 @@ def get_current_user(
         return user
 
 
+def get_user_roles(user_level: int) -> list[str]:
+    """按用户等级生成前端路由守卫使用的角色列表。
+
+    参数:
+        user_level: users 表中的用户等级。
+    返回:
+        对应的前端角色标识列表。
+    """
+    return [USER_LEVEL_ROLES.get(user_level, DEFAULT_USER_ROLE)]
+
+
+def require_min_user_level(user: User, min_level: UserLevel, detail: str) -> User:
+    """校验用户等级不低于指定等级。
+
+    参数:
+        user: 已认证的当前用户。
+        min_level: 允许访问的最低用户等级。
+        detail: 权限不足时返回的 403 错误信息。
+    返回:
+        通过等级校验的当前用户。
+    """
+    if user.user_level < min_level:
+        raise HTTPException(status_code=403, detail=detail)
+    return user
+
+
 def get_current_admin(
     user: Annotated[User, Depends(get_current_user)],
 ) -> User:
@@ -118,6 +150,17 @@ def get_current_admin(
     返回:
         用户等级为 9 的管理员用户。
     """
-    if user.user_level != 9:
-        raise HTTPException(status_code=403, detail="仅管理员可使用此功能")
-    return user
+    return require_min_user_level(user, UserLevel.ADMIN, "仅管理员可使用此功能")
+
+
+def get_current_premium_user(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """校验当前网页用户是否为高级用户或管理员。
+
+    参数:
+        user: JWT 认证依赖解析出的当前用户。
+    返回:
+        用户等级不低于高级用户的当前用户。
+    """
+    return require_min_user_level(user, UserLevel.PREMIUM, "仅高级用户和管理员可使用此功能")

@@ -57,7 +57,7 @@ def get_probe_trend(
     range_type: ProbeRangeType = Query(alias="rangeType"),
     month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
 ) -> ProbeTrendResponse:
-    """查询当前用户指定节点和探测模式的分钟趋势。
+    """查询当前用户指定节点和探测模式按时间桶聚合的趋势。
 
     参数:
         user: JWT 认证依赖解析出的当前用户。
@@ -67,7 +67,7 @@ def get_probe_trend(
         range_type: 最近 1、2、7 天或月份范围。
         month: 月份范围使用的 YYYY-MM 字符串。
     返回:
-        统一响应包装的分钟趋势数据。
+        统一响应包装的聚合趋势数据。
     """
     try:
         data = get_user_probe_trend(

@@ -11,7 +11,7 @@ export const managementRoutes: AppRouteRecord[] = [
     meta: {
       title: 'IP管理',
       icon: 'ri:server-line',
-      roles: ['R_ADMIN']
+      roles: ['R_ADMIN', 'R_PREMIUM']
     }
   },
   {

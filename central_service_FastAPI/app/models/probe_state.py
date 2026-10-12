@@ -1,9 +1,29 @@
 """持续探测状态 ORM 模型。"""
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+
+def _source_time_index(table_name: str) -> Index:
+    """构建按源节点、探测模式和时间范围查询的覆盖索引。
+
+    参数:
+        table_name: 探测状态表名称。
+    返回:
+        覆盖趋势和报告查询所需列的复合索引。
+    """
+    return Index(
+        f"ix_{table_name}_source_mode_time",
+        "source_ip_id",
+        "probe_mode",
+        "time_id",
+        "target_ip_id",
+        "loss_rate",
+        "rtt_ms",
+        "device_related_id",
+    )
 
 
 class ProbeStateMixin:
@@ -45,6 +65,7 @@ class ICMPProbeState(ProbeStateMixin, Base):
             "rtt_ms BETWEEN 0 AND 300",
             name="ck_probe_state_icmp_rtt_ms",
         ),
+        _source_time_index("probe_state_icmp"),
     )
 
 
@@ -65,6 +86,7 @@ class TCPProbeState(ProbeStateMixin, Base):
             "rtt_ms BETWEEN 0 AND 300",
             name="ck_probe_state_tcp_rtt_ms",
         ),
+        _source_time_index("probe_state_tcp"),
     )
 
 
@@ -85,4 +107,5 @@ class UDPProbeState(ProbeStateMixin, Base):
             "rtt_ms BETWEEN 0 AND 300",
             name="ck_probe_state_udp_rtt_ms",
         ),
+        _source_time_index("probe_state_udp"),
     )

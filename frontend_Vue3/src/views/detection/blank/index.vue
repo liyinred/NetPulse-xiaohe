@@ -76,56 +76,28 @@
       </div>
       <ElTable
         class="probe-report-table"
-        :data="reportData?.rows ?? []"
+        :data="reportRows"
+        :span-method="mergeIspCells"
         border
         empty-text="当前时间窗口暂无探测结果"
       >
-        <ElTableColumn prop="provinceName" label="省份" />
         <ElTableColumn prop="ispName" label="运营商" />
-        <ElTableColumn label="ICMP" align="center">
-          <ElTableColumn label="平均丢包" align="right">
+        <ElTableColumn prop="provinceName" label="省份" />
+        <ElTableColumn
+          v-for="protocol in protocols"
+          :key="protocol"
+          :label="protocol.toUpperCase()"
+          align="center"
+        >
+          <ElTableColumn
+            v-for="reportMetric in reportMetrics"
+            :key="reportMetric.value"
+            :label="reportMetric.label"
+            align="right"
+          >
             <template #default="{ row }">
-              <span :class="{ 'text-danger': isReportMetricAlert(row.icmp, 'loss') }">
-                {{ formatReportMetric(row.icmp, 'loss') }}
-              </span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="平均延迟" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isReportMetricAlert(row.icmp, 'latency') }">
-                {{ formatReportMetric(row.icmp, 'latency') }}
-              </span>
-            </template>
-          </ElTableColumn>
-        </ElTableColumn>
-        <ElTableColumn label="TCP" align="center">
-          <ElTableColumn label="平均丢包" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isReportMetricAlert(row.tcp, 'loss') }">
-                {{ formatReportMetric(row.tcp, 'loss') }}
-              </span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="平均延迟" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isReportMetricAlert(row.tcp, 'latency') }">
-                {{ formatReportMetric(row.tcp, 'latency') }}
-              </span>
-            </template>
-          </ElTableColumn>
-        </ElTableColumn>
-        <ElTableColumn label="UDP" align="center">
-          <ElTableColumn label="平均丢包" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isReportMetricAlert(row.udp, 'loss') }">
-                {{ formatReportMetric(row.udp, 'loss') }}
-              </span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="平均延迟" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isReportMetricAlert(row.udp, 'latency') }">
-                {{ formatReportMetric(row.udp, 'latency') }}
+              <span :class="getReportMetricClass(row[protocol], reportMetric.value)">
+                {{ formatReportMetric(row[protocol], reportMetric.value) }}
               </span>
             </template>
           </ElTableColumn>
@@ -141,56 +113,33 @@
       <ElTable
         class="probe-report-table"
         :data="previousDayReportRows"
+        :span-method="mergeIspCells"
         border
         empty-text="昨日暂无探测结果"
       >
-        <ElTableColumn prop="provinceName" label="省份" />
         <ElTableColumn prop="ispName" label="运营商" />
-        <ElTableColumn label="ICMP" align="center">
-          <ElTableColumn label="平均丢包" align="right">
+        <ElTableColumn prop="provinceName" label="省份" />
+        <ElTableColumn
+          v-for="protocol in protocols"
+          :key="protocol"
+          :label="protocol.toUpperCase()"
+          align="center"
+        >
+          <ElTableColumn
+            v-for="reportMetric in reportMetrics"
+            :key="reportMetric.value"
+            :label="reportMetric.label"
+            align="right"
+          >
             <template #default="{ row }">
-              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'icmp', 'loss') }">
-                {{ formatPeriodMetric(row, 'icmp', 'loss') }}
-              </span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="平均延迟" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'icmp', 'latency') }">
-                {{ formatPeriodMetric(row, 'icmp', 'latency') }}
-              </span>
-            </template>
-          </ElTableColumn>
-        </ElTableColumn>
-        <ElTableColumn label="TCP" align="center">
-          <ElTableColumn label="平均丢包" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'tcp', 'loss') }">
-                {{ formatPeriodMetric(row, 'tcp', 'loss') }}
-              </span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="平均延迟" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'tcp', 'latency') }">
-                {{ formatPeriodMetric(row, 'tcp', 'latency') }}
-              </span>
-            </template>
-          </ElTableColumn>
-        </ElTableColumn>
-        <ElTableColumn label="UDP" align="center">
-          <ElTableColumn label="平均丢包" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'udp', 'loss') }">
-                {{ formatPeriodMetric(row, 'udp', 'loss') }}
-              </span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="平均延迟" align="right">
-            <template #default="{ row }">
-              <span :class="{ 'text-danger': isPeriodMetricAlert(row, 'udp', 'latency') }">
-                {{ formatPeriodMetric(row, 'udp', 'latency') }}
-              </span>
+              <template v-for="(period, periodIndex) in reportPeriods" :key="period">
+                <template v-if="periodIndex > 0"> / </template>
+                <span
+                  :class="getReportMetricClass(row[period]?.[protocol] ?? null, reportMetric.value)"
+                >
+                  {{ formatReportMetric(row[period]?.[protocol] ?? null, reportMetric.value) }}
+                </span>
+              </template>
             </template>
           </ElTableColumn>
         </ElTableColumn>
@@ -284,6 +233,13 @@
   const route = useRoute()
   const chartTheme = useChartOps()
   const metricAlertValues: Record<MetricType, number> = { loss: 100, latency: 300 }
+  const lossRateLevelThresholds = { warning: 5, danger: 15 }
+  const protocols: Api.Detection.ProtocolType[] = ['icmp', 'tcp', 'udp']
+  const reportMetrics: { value: MetricType; label: string }[] = [
+    { value: 'loss', label: '平均丢包' },
+    { value: 'latency', label: '平均延迟' }
+  ]
+  const reportPeriods = ['fullDay', 'eveningPeak'] as const
   const trendChartHeight = `calc(${chartTheme.chartHeight} * 2.4)`
   const nodes = ref<Api.Detection.ProbeNode[]>([])
   const sourceIpId = ref<number>()
@@ -320,13 +276,18 @@
     return rangeLabels[rangeType.value]
   })
 
+  /**
+   * 按后端聚合粒度生成覆盖查询范围的完整时间桶轴。
+   * @returns 与趋势数据点对齐的时间桶起点 Unix 时间戳列表。
+   */
   const timeIds = computed(() => {
     if (!trendData.value) return []
+    const { startTime, endTime, intervalSeconds } = trendData.value
     const values: number[] = []
     for (
-      let timestamp = trendData.value.startTime;
-      timestamp <= trendData.value.endTime;
-      timestamp += 60
+      let timestamp = startTime - (startTime % intervalSeconds);
+      timestamp <= endTime;
+      timestamp += intervalSeconds
     ) {
       values.push(timestamp)
     }
@@ -337,9 +298,51 @@
   const chartSeries = computed<LineDataItem[]>(() =>
     buildChartSeries(trendData.value, timeIds.value, metric.value)
   )
+  /**
+   * 按运营商归组当前时间范围的汇总结果。
+   * @returns 带运营商合并跨度的表格行。
+   */
+  const reportRows = computed(() => groupReportRows(reportData.value?.rows ?? []))
+
+  /**
+   * 合并昨日时段结果并按运营商归组。
+   * @returns 带运营商合并跨度的昨日对比行。
+   */
   const previousDayReportRows = computed(() =>
-    mergePeriodReportRows(reportData.value?.previousDayRows ?? [])
+    groupReportRows(mergePeriodReportRows(reportData.value?.previousDayRows ?? []))
   )
+
+  /**
+   * 将相同运营商的行连续排列，保留组内顺序并计算合并跨度。
+   * @param rows 后端报告行或已合并的昨日对比行。
+   * @returns 各组首行记录组长度、后续行记录零跨度的表格行副本。
+   */
+  function groupReportRows<T extends { isp: number | null }>(
+    rows: T[]
+  ): (T & { ispRowSpan: number })[] {
+    const groups = new Map<number | null, T[]>()
+    for (const row of rows) {
+      const group = groups.get(row.isp) ?? []
+      group.push(row)
+      groups.set(row.isp, group)
+    }
+    return Array.from(groups.values()).flatMap((group) =>
+      group.map((row, index) => ({ ...row, ispRowSpan: index === 0 ? group.length : 0 }))
+    )
+  }
+
+  /**
+   * 纵向合并报告表格中的运营商单元格。
+   * @param context Element Plus 当前行及列信息。
+   * @returns 运营商列使用分组跨度，其他列保留独立单元格。
+   */
+  function mergeIspCells(context: {
+    row: { ispRowSpan: number }
+    column: { property: string }
+  }): [number, number] {
+    if (context.column.property !== 'ispName') return [1, 1]
+    return context.row.ispRowSpan > 0 ? [context.row.ispRowSpan, 1] : [0, 0]
+  }
 
   /**
    * 格式化报告表格中的协议平均指标。
@@ -383,55 +386,25 @@
   }
 
   /**
-   * 按全天、晚高峰顺序格式化昨日对比指标。
-   * @param row 合并后的目标网络报告行。
-   * @param protocol 协议类型。
-   * @param selectedMetric 待展示的丢包或延迟指标。
-   * @returns 使用斜杠分隔的全天值和晚高峰值。
-   */
-  function formatPeriodMetric(
-    row: MergedPeriodReportRow,
-    protocol: Api.Detection.ProtocolType,
-    selectedMetric: MetricType
-  ): string {
-    const fullDaySummary = row.fullDay?.[protocol] ?? null
-    const peakSummary = row.eveningPeak?.[protocol] ?? null
-    return `${formatReportMetric(fullDaySummary, selectedMetric)} / ${formatReportMetric(peakSummary, selectedMetric)}`
-  }
-
-  /**
-   * 判断全天或晚高峰指标是否达到标红阈值。
-   * @param row 合并后的目标网络报告行。
-   * @param protocol 协议类型。
-   * @param selectedMetric 待判断的丢包或延迟指标。
-   * @returns 任一时段达到对应失败阈值时返回 true。
-   */
-  function isPeriodMetricAlert(
-    row: MergedPeriodReportRow,
-    protocol: Api.Detection.ProtocolType,
-    selectedMetric: MetricType
-  ): boolean {
-    return (
-      isReportMetricAlert(row.fullDay?.[protocol] ?? null, selectedMetric) ||
-      isReportMetricAlert(row.eveningPeak?.[protocol] ?? null, selectedMetric)
-    )
-  }
-
-  /**
-   * 判断报告指标是否达到不可覆盖的标红阈值。
+   * 根据报告指标返回现有语义文字颜色。
    * @param summary 协议聚合结果；没有样本时为 null。
-   * @param selectedMetric 待判断的丢包或延迟指标。
-   * @returns 指标达到对应失败阈值时返回 true。
+   * @param selectedMetric 待着色的丢包或延迟指标。
+   * @returns 丢包超过 15% 返回红色、超过 5% 返回黄色；延迟沿用失败阈值，其余返回空字符串。
    */
-  function isReportMetricAlert(
+  function getReportMetricClass(
     summary: Api.Detection.ProbeProtocolSummary | null,
     selectedMetric: MetricType
-  ): boolean {
-    if (!summary) return false
-    if (selectedMetric === 'loss') return summary.lossRate >= metricAlertValues.loss
-    return (
-      summary.averageLatencyMs === null || summary.averageLatencyMs >= metricAlertValues.latency
-    )
+  ): string {
+    if (!summary) return ''
+    if (selectedMetric === 'loss') {
+      if (summary.lossRate > lossRateLevelThresholds.danger) return 'text-danger'
+      if (summary.lossRate > lossRateLevelThresholds.warning) return 'text-warning'
+      return ''
+    }
+    return summary.averageLatencyMs === null ||
+      summary.averageLatencyMs >= metricAlertValues.latency
+      ? 'text-danger'
+      : ''
   }
 
   /**
@@ -447,11 +420,11 @@
   }
 
   /**
-   * 将后端稀疏分钟点补齐为 ECharts 所需的完整时间序列。
+   * 将后端稀疏时间桶数据点补齐为 ECharts 所需的完整时间序列。
    * @param data 后端返回的目标 IP 趋势。
-   * @param timestamps 完整的自然分钟时间轴。
+   * @param timestamps 完整的时间桶轴。
    * @param selectedMetric 当前选择的丢包或延迟指标。
-   * @returns 按目标 IP 分组且缺失分钟为 null 的图表序列。
+   * @returns 按目标 IP 分组且缺失时间桶为 null 的图表序列。
    */
   function buildChartSeries(
     data: Api.Detection.ProbeTrendData | undefined,

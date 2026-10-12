@@ -110,7 +110,7 @@ declare namespace Api {
       label: string
     }
 
-    /** 单个自然分钟的聚合探测值 */
+    /** 单个时间桶的聚合探测值，timeId 为桶起点 */
     type ProbeTrendPoint = [timeId: number, lossRate: number, averageLatencyMs: number]
 
     /** 单个目标 IP 的探测趋势 */
@@ -184,6 +184,8 @@ declare namespace Api {
     interface ProbeTrendData {
       startTime: number
       endTime: number
+      /** 趋势聚合粒度秒数，数据点按该粒度对齐 Unix 时间戳 */
+      intervalSeconds: number
       series: ProbeTrendSeries[]
     }
 

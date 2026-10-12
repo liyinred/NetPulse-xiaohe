@@ -104,7 +104,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `loss_rate`    | `INT`   | `NOT NULL`, `CHECK`               | UDP 丢包率，0 至 1000 的整数千分比        |
 | `rtt_ms`       | `INT`   | `NOT NULL`, `CHECK`                 | UDP 整数毫秒 RTT，范围 0 至 300；100% 丢包时写入 `300` |
 
-三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键，并各自维护非唯一复合索引 `ix_probe_state_{type}_time_source_mode`（`time_id + source_ip_id + probe_mode`），用于按分钟窗口、源 IP 和探测分类查询已有结果以完成幂等校验。中央服务校验设备、源目标 IP、版本和分类后，将非空协议结果写入对应状态表；ICMP、TCP 固定写入，UDP 为 `null` 时跳过 `probe_state_udp`。其余字段映射和幂等比较规则相同。
+三张状态表均以 `time_id + source_ip_id + target_ip_id + probe_mode` 为复合主键，并各自维护非唯一覆盖索引 `ix_probe_state_{type}_source_mode_time`（`source_ip_id + probe_mode + time_id + target_ip_id + loss_rate + rtt_ms + device_related_id`）：等值列在前、时间范围列居中，使探测趋势与报告查询仅扫描所选源节点的数据且无需回表，同时满足按分钟窗口、源 IP 和探测分类查询已有结果的幂等校验。探测趋势接口按时间范围对分钟数据求平均降采样（1 天 1 分钟、2 天 2 分钟、7 天 10 分钟、月份 30 分钟）。中央服务校验设备、源目标 IP、版本和分类后，将非空协议结果写入对应状态表；ICMP、TCP 固定写入，UDP 为 `null` 时跳过 `probe_state_udp`。其余字段映射和幂等比较规则相同。
 
 ### 7.7 `alert_events`
 
@@ -122,6 +122,8 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 | `message`       | `TEXT`        | -                    | 包含分类、协议及源目标地址的告警事件摘要       |
 
 事件经设备归属、目标和分类校验后入库；中央服务事件的 `message` 包含事件类型和丢包率。
+
+中央服务启动后常驻数据保留任务，每天北京时间 13:00 和 23:00 按北京时间自然日边界，分批删除最近 60 个完整自然日之前的 `probe_state_{type}`（按 `time_id`）及 `alert_events`（按 `occurred_at`）记录；`probe_alert_states` 为告警状态机当前状态，不参与清理。
 
 #### `probe_alert_states`
 

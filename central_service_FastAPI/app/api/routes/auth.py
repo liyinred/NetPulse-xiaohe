@@ -19,6 +19,7 @@ from app.services.auth import (
     create_access_token,
     find_login_user,
     get_current_user,
+    get_user_roles,
 )
 from app.services.wechat import QRCODE_EXPIRE_SECONDS, get_scene_created_at
 
@@ -89,7 +90,7 @@ async def get_user_info(
     return UserInfoResponse(
         data=UserInfoData(
             buttons=[],
-            roles=["R_ADMIN"] if user.user_level == 9 else ["R_USER"],
+            roles=get_user_roles(user.user_level),
             userId=user.id,
             userName=f"微信用户 {user.id}",
             email="",

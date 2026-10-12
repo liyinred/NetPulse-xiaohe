@@ -11,9 +11,9 @@ export function fetchGetProbeNodes() {
 }
 
 /**
- * 获取指定节点、模式和北京时间范围的分钟探测趋势。
+ * 获取指定节点、模式和北京时间范围按时间桶聚合的探测趋势。
  * @param params 探测节点、模式和时间范围参数。
- * @returns 按目标 IP 分组的探测趋势。
+ * @returns 聚合粒度及按目标 IP 分组的探测趋势。
  */
 export function fetchGetProbeTrend(params: Api.Detection.ProbeTrendParams) {
   return request.get<Api.Detection.ProbeTrendData>({

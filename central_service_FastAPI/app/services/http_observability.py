@@ -2,7 +2,7 @@
 
 import logging
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from math import ceil
 from threading import Lock
 from time import monotonic, time
@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import HTTP_ERROR_LOG_DATABASE_PATH
+from app.core.retention import BEIJING_TIMEZONE, get_retention_cutoff
 from app.models.http_error_log import HttpErrorLog, HttpErrorLogBase
 from app.schemas.pagination import PaginatedData, PaginationParams
 from app.schemas.system_log import HttpErrorLogItem, HttpMetrics
@@ -20,7 +21,6 @@ from app.services.pagination import paginate_query
 
 
 logger = logging.getLogger(__name__)
-BEIJING_TIMEZONE = timezone(timedelta(hours=8))
 MAX_ERROR_MESSAGE_LENGTH = 2000
 MAX_DURATION_SAMPLES = 10_000
 HTTP_ERROR_RETENTION_DAYS = 7
@@ -148,13 +148,7 @@ def _get_http_error_retention_cutoff(occurred_time: int) -> int:
     返回:
         北京时间当天零点向前七日对应的 Unix 时间戳。
     """
-    current_day_start = datetime.fromtimestamp(
-        occurred_time,
-        tz=BEIJING_TIMEZONE,
-    ).replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(
-        (current_day_start - timedelta(days=HTTP_ERROR_RETENTION_DAYS)).timestamp()
-    )
+    return get_retention_cutoff(occurred_time, HTTP_ERROR_RETENTION_DAYS)
 
 
 def record_outbound_response_error(status_code: int, method: str, path: str) -> None:

@@ -1,9 +1,10 @@
 """FastAPI 应用创建与启动入口。"""
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -16,6 +17,7 @@ from app.api.router import api_router
 from app.db.base import Base
 from app.db.session import engine
 from app.middleware.http_observability import HttpObservabilityMiddleware
+from app.services.data_retention import run_probe_retention_scheduler
 from app.services.http_observability import initialize_http_error_database
 
 
@@ -61,16 +63,20 @@ class FrontendStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
-    """在应用启动时创建缺失的数据库表。
+    """在应用启动时创建缺失的数据库表并启动探测数据保留清理任务。
 
     参数:
         application: 当前 FastAPI 应用实例。
     返回:
-        控制应用生命周期的异步迭代器。
+        控制应用生命周期的异步迭代器；应用关闭时取消清理任务。
     """
     Base.metadata.create_all(bind=engine)
     initialize_http_error_database()
+    retention_task = asyncio.create_task(run_probe_retention_scheduler())
     yield
+    retention_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await retention_task
 
 
 def create_app() -> FastAPI:

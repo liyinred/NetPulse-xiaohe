@@ -59,6 +59,8 @@ PROTOCOL_CODES = {"icmp": 1, "tcp": 2, "udp": 3}
 PROBE_MODE_NAMES = {"cross_isp": "异网", "cross_province": "跨省"}
 ALERT_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 PROBE_RANGE_DAYS = {"1d": 1, "2d": 2, "7d": 7}
+# 各时间范围的趋势聚合粒度，使每条曲线保持约 1000-1500 个数据点
+PROBE_TREND_BUCKET_SECONDS = {"1d": 60, "2d": 120, "7d": 600, "month": 1800}
 REPORT_LOSS_FAILURE_RATE = 100.0
 REPORT_LATENCY_FAILURE_MS = 300.0
 ALERT_LOSS_RATE_THRESHOLD = 100
@@ -248,7 +250,7 @@ def _build_probe_report(
 
     rows = sorted(
         rows_by_network.values(),
-        key=lambda row: (row.province or 0, row.isp or 0),
+        key=lambda row: (row.isp or 0, row.province or 0),
     )
     covered_provinces = _apply_probe_report_coverage(rows)
     return ProbeReportData(
@@ -387,8 +389,8 @@ def _build_previous_day_report(
     sorted_rows = sorted(
         rows.values(),
         key=lambda row: (
-            row.province or 0,
             row.isp or 0,
+            row.province or 0,
             period_order[row.period],
         ),
     )
@@ -1119,7 +1121,9 @@ def get_user_probe_trend(
     month: str | None = None,
     current_time: int | None = None,
 ) -> ProbeTrendData:
-    """查询符合异网或同运营商跨省规则的目标在指定范围内的分钟趋势。
+    """查询符合异网或同运营商跨省规则的目标在指定范围内的聚合趋势。
+
+    数据按范围对应的时间桶求平均，桶起点按聚合粒度对齐 Unix 时间戳。
 
     参数:
         user_id: 当前登录用户的内部主键。
@@ -1131,13 +1135,14 @@ def get_user_probe_trend(
         month: 月份范围使用的 YYYY-MM 字符串。
         current_time: 可选的当前时间戳，主要用于确定相对范围。
     返回:
-        查询范围及按目标 IP 分组的指定协议趋势。
+        查询范围、聚合粒度及按目标 IP 分组的指定协议趋势。
     """
     start_time, end_time = _resolve_probe_time_range(
         range_type,
         month,
         int(time()) if current_time is None else current_time,
     )
+    bucket_seconds = PROBE_TREND_BUCKET_SECONDS[range_type]
     state_model = PROBE_STATE_MODELS[protocol_type]
 
     with SessionLocal() as session:
@@ -1148,15 +1153,18 @@ def get_user_probe_trend(
             source_ip_id,
         )
 
+        bucket_time = (
+            state_model.time_id - state_model.time_id % bucket_seconds
+        ).label("bucket_time")
         statement = (
             select(
-                state_model.time_id,
+                bucket_time,
                 IPDict.id.label("target_ip_id"),
                 IPDict.ip,
                 IPDict.province,
                 IPDict.isp,
-                state_model.loss_rate,
-                state_model.rtt_ms,
+                func.avg(state_model.loss_rate).label("loss_rate"),
+                func.avg(state_model.rtt_ms).label("rtt_ms"),
             )
             .join(IPDict, IPDict.id == state_model.target_ip_id)
             .where(
@@ -1164,7 +1172,14 @@ def get_user_probe_trend(
                 state_model.probe_mode == probe_mode,
                 state_model.time_id.between(start_time, end_time),
             )
-            .order_by(IPDict.id, state_model.time_id)
+            .group_by(
+                IPDict.id,
+                IPDict.ip,
+                IPDict.province,
+                IPDict.isp,
+                bucket_time,
+            )
+            .order_by(IPDict.id, bucket_time)
         )
         statement = _filter_probe_mode(
             statement, source_province, source_isp, probe_mode
@@ -1193,7 +1208,7 @@ def get_user_probe_trend(
         )
         series.points.append(
             (
-                record.time_id,
+                record.bucket_time,
                 round(float(record.loss_rate) / 10, 1),
                 round(float(record.rtt_ms), 1),
             )
@@ -1201,6 +1216,7 @@ def get_user_probe_trend(
     return ProbeTrendData(
         startTime=start_time,
         endTime=end_time,
+        intervalSeconds=bucket_seconds,
         series=list(series_by_target.values()),
     )
 
