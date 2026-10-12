@@ -10,6 +10,7 @@ from app.schemas.probe import (
     ProbeAcceptedResponse,
     ProbeAlertsRequest,
     ProbeNodesResponse,
+    ProbePreviousDayReportResponse,
     ProbeRangeType,
     ProbeReportResponse,
     ProbeResultRequest,
@@ -23,6 +24,7 @@ from app.services.network import IPLookupError
 from app.services.wechat import send_template_messages
 from app.services.probe import (
     discover_probe_targets,
+    get_user_probe_previous_day_report,
     get_user_probe_report,
     get_user_probe_trend,
     list_user_probe_nodes,
@@ -115,6 +117,36 @@ def get_probe_report(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ProbeReportResponse(data=data)
+
+
+@web_router.get(
+    "/previous-day-report",
+    response_model=ProbePreviousDayReportResponse,
+)
+def get_probe_previous_day_report(
+    user: Annotated[User, Depends(get_current_user)],
+    source_ip_id: int = Query(alias="sourceIpId", ge=1),
+    probe_mode: int = Query(alias="probeMode", ge=1, le=2),
+) -> ProbePreviousDayReportResponse:
+    """查询当前用户指定节点和探测模式的昨日全天及晚高峰报告。
+
+    参数:
+        user: JWT 认证依赖解析出的当前用户。
+        source_ip_id: 用户选择的源 IP 记录主键。
+        probe_mode: 探测模式编码，1 为异网，2 为跨省。
+    返回:
+        统一响应包装的昨日分时报告。
+    """
+    try:
+        data = get_user_probe_previous_day_report(
+            user.id,
+            user.user_level,
+            source_ip_id,
+            probe_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ProbePreviousDayReportResponse(data=data)
 
 
 @router.post(

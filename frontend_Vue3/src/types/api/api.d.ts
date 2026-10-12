@@ -108,6 +108,8 @@ declare namespace Api {
       id: number
       ip: string
       label: string
+      /** 节点所属设备当前是否在线 */
+      online: boolean
     }
 
     /** 单个时间桶的聚合探测值，timeId 为桶起点 */
@@ -133,7 +135,6 @@ declare namespace Api {
       provinceName: string
       isp: number | null
       ispName: string
-      isCrossIsp: boolean
       isCrossProvince: boolean
       isCovered: boolean
       icmp: ProbeProtocolSummary | null
@@ -159,18 +160,25 @@ declare namespace Api {
       endTime: number
       sourceProvinceName: string
       sourceIspName: string
-      crossIspCovered: boolean
       crossProvinceCovered: boolean
       coveredProvinces: string[]
       rows: ProbeReportRow[]
-      previousDayDate: string
-      previousDayRows: ProbePeriodReportRow[]
+    }
+
+    /** 北京时间昨日日期及全天、晚高峰分时报告 */
+    interface ProbePreviousDayReportData {
+      date: string
+      rows: ProbePeriodReportRow[]
+    }
+
+    /** 昨日探测报告查询参数 */
+    interface ProbePreviousDayReportParams {
+      sourceIpId: number
+      probeMode: ProbeMode
     }
 
     /** 探测概览查询参数 */
-    interface ProbeReportParams {
-      sourceIpId: number
-      probeMode: ProbeMode
+    interface ProbeReportParams extends ProbePreviousDayReportParams {
       rangeType: ProbeRangeType
       month?: string
     }

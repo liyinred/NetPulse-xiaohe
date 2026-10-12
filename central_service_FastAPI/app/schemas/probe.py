@@ -99,6 +99,7 @@ class ProbeNodeItem(BaseModel):
     id: int
     ip: str
     label: str
+    online: bool
 
 
 class ProbeNodesResponse(BaseModel):
@@ -135,7 +136,6 @@ class ProbeReportRow(BaseModel):
     provinceName: str
     isp: int | None
     ispName: str
-    isCrossIsp: bool
     isCrossProvince: bool
     isCovered: bool = True
     icmp: ProbeProtocolSummary | None = None
@@ -163,12 +163,9 @@ class ProbeReportData(BaseModel):
     endTime: int
     sourceProvinceName: str
     sourceIspName: str
-    crossIspCovered: bool
     crossProvinceCovered: bool
     coveredProvinces: list[str]
     rows: list[ProbeReportRow]
-    previousDayDate: str
-    previousDayRows: list[ProbePeriodReportRow]
 
 
 class ProbeReportResponse(BaseModel):
@@ -177,6 +174,21 @@ class ProbeReportResponse(BaseModel):
     code: int = 200
     msg: str = "探测概览获取成功"
     data: ProbeReportData
+
+
+class ProbePreviousDayReportData(BaseModel):
+    """保存北京时间昨日日期及全天、晚高峰的分时报告行。"""
+
+    date: str
+    rows: list[ProbePeriodReportRow]
+
+
+class ProbePreviousDayReportResponse(BaseModel):
+    """昨日探测报告的统一响应。"""
+
+    code: int = 200
+    msg: str = "昨日探测报告获取成功"
+    data: ProbePreviousDayReportData
 
 
 class ProbeTrendData(BaseModel):

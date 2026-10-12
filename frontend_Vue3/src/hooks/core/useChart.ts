@@ -51,6 +51,7 @@
 
 import { echarts, type EChartsOption } from '@/plugins/echarts'
 import { storeToRefs } from 'pinia'
+import { useResizeObserver } from '@vueuse/core'
 import { useSettingStore } from '@/store/modules/setting'
 import { getCssVar } from '@/utils/ui'
 import type { BaseChartProps, ChartThemeConfig, UseChartOptions } from '@/types/component/chart'
@@ -69,7 +70,7 @@ export const useChartOps = (): ChartThemeConfig => ({
   /** 极小字体大小 */
   tinyFontSize: 11,
   /** 紧凑图例字体大小 */
-  compactLegendFontSize: 10,
+  compactLegendFontSize: 11,
   /** 默认折线宽度 */
   lineWidth: 2.5,
   /** 细折线宽度 */
@@ -430,19 +431,17 @@ export function useChart(options: UseChartOptions = {}) {
             requestAnimationFrame(() => {
               if (!isDestroyed && pendingOptions) {
                 try {
-                  // 元素变为可见，初始化图表
-                  if (!chart) {
-                    chart = echarts.init(entry.target as HTMLElement)
-                  }
+                  // 先消费待渲染配置并断开观察，避免组件重新挂起的配置被覆盖
+                  const visibleOptions = pendingOptions
+                  pendingOptions = null
+                  cleanupIntersectionObserver()
+                  ensureChartInstance()
 
                   // 触发自定义事件，让组件处理动画逻辑
                   const event = new CustomEvent('chartVisible', {
-                    detail: { options: pendingOptions }
+                    detail: { options: visibleOptions }
                   })
                   entry.target.dispatchEvent(event)
-
-                  pendingOptions = null
-                  cleanupIntersectionObserver()
                 } catch (error) {
                   console.error('图表初始化失败:', error)
                 }
@@ -471,14 +470,22 @@ export function useChart(options: UseChartOptions = {}) {
     return rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight && rect.bottom > 0
   }
 
-  // 图表初始化核心逻辑
-  const performChartInit = (options: EChartsOption) => {
+  /**
+   * 确保图表实例已创建，并为新实例注册菜单与主题监听。
+   * @returns 无返回值。
+   */
+  const ensureChartInstance = (): void => {
     if (!chart && chartRef.value && !isDestroyed) {
       chart = echarts.init(chartRef.value)
       // 图表创建后立即设置监听器
       setupMenuWatchers()
       setupThemeWatcher()
     }
+  }
+
+  // 图表初始化核心逻辑
+  const performChartInit = (options: EChartsOption) => {
+    ensureChartInstance()
     if (chart && !isDestroyed) {
       chart.setOption(options)
       pendingOptions = null
@@ -629,6 +636,9 @@ export function useChart(options: UseChartOptions = {}) {
   onMounted(() => {
     window.addEventListener('resize', debouncedResize)
   })
+
+  // 容器尺寸因布局变化（滚动条出现、内容折叠等）改变时同步调整图表尺寸
+  useResizeObserver(chartRef, requestAnimationResize)
 
   onBeforeUnmount(() => {
     window.removeEventListener('resize', debouncedResize)

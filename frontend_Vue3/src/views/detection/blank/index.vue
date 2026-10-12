@@ -11,7 +11,22 @@
           placeholder="请选择探测节点"
           @change="handleNodeChange"
         >
-          <ElOption v-for="node in nodes" :key="node.id" :label="node.label" :value="node.id" />
+          <template #label="{ label }">
+            <div class="flex items-center gap-2">
+              <span class="truncate">{{ label }}</span>
+              <ElTag v-if="selectedNode" size="small" :type="getNodeStatus(selectedNode).type">
+                {{ getNodeStatus(selectedNode).text }}
+              </ElTag>
+            </div>
+          </template>
+          <ElOption v-for="node in nodes" :key="node.id" :label="node.label" :value="node.id">
+            <div class="flex items-center justify-between gap-3">
+              <span class="truncate">{{ node.label }}</span>
+              <ElTag size="small" :type="getNodeStatus(node).type">
+                {{ getNodeStatus(node).text }}
+              </ElTag>
+            </div>
+          </ElOption>
         </ElSelect>
       </div>
 
@@ -35,15 +50,10 @@
           @change="handleMonthChange"
         />
         <ElButton
-          :disabled="
-            reportLoading || trendLoading || !sourceIpId || (rangeType === 'month' && !month)
-          "
+          :disabled="probeDataLoading || !sourceIpId || (rangeType === 'month' && !month)"
           @click="loadProbeData"
         >
-          <ArtSvgIcon
-            icon="ri:refresh-line"
-            :class="{ 'animate-spin': reportLoading || trendLoading }"
-          />
+          <ArtSvgIcon icon="ri:refresh-line" :class="{ 'animate-spin': probeDataLoading }" />
           <span>刷新</span>
         </ElButton>
       </div>
@@ -54,12 +64,7 @@
         <ElDescriptionsItem label="源节点归属">
           {{ reportData.sourceProvinceName }}{{ reportData.sourceIspName }}
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="probeMode === 1" label="异网能力">
-          <ElTag :type="reportData.crossIspCovered ? 'success' : 'info'">
-            {{ reportData.crossIspCovered ? '可异网' : '不可异网' }}
-          </ElTag>
-        </ElDescriptionsItem>
-        <ElDescriptionsItem v-else label="跨省能力">
+        <ElDescriptionsItem v-if="probeMode === 2" label="跨省能力">
           <ElTag :type="reportData.crossProvinceCovered ? 'success' : 'info'">
             {{ reportData.crossProvinceCovered ? '可跨省' : '不可跨省' }}
           </ElTag>
@@ -71,10 +76,23 @@
 
       <div class="mb-3 mt-6 flex flex-wrap items-center gap-2">
         <h2 class="text-base font-medium text-g-900">
-          探测汇总<span v-if="reportData">（{{ reportRangeLabel }}）</span>
+          <button
+            type="button"
+            class="flex items-center gap-1"
+            :aria-expanded="!collapsedSections.summary"
+            @click="toggleSection('summary')"
+          >
+            <ArtSvgIcon
+              icon="ri:arrow-right-s-line"
+              class="text-lg text-g-600 transition-transform"
+              :class="{ 'rotate-90': !collapsedSections.summary }"
+            />
+            <span>探测汇总</span><span v-if="reportData">（{{ reportRangeLabel }}）</span>
+          </button>
         </h2>
       </div>
       <ElTable
+        v-if="!collapsedSections.summary"
         class="probe-report-table"
         :data="reportRows"
         :span-method="mergeIspCells"
@@ -106,11 +124,25 @@
 
       <div class="mb-3 mt-6 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-base font-medium text-g-900">
-          昨日探测<span v-if="reportData">（{{ reportData.previousDayDate }}）</span>
+          <button
+            type="button"
+            class="flex items-center gap-1"
+            :aria-expanded="!collapsedSections.previousDay"
+            @click="toggleSection('previousDay')"
+          >
+            <ArtSvgIcon
+              icon="ri:arrow-right-s-line"
+              class="text-lg text-g-600 transition-transform"
+              :class="{ 'rotate-90': !collapsedSections.previousDay }"
+            />
+            <span>昨日探测</span><span v-if="previousDayData">（{{ previousDayData.date }}）</span>
+          </button>
         </h2>
         <ElTag type="info" effect="light">展示格式：全天 / 晚高峰（20:00-22:00）</ElTag>
       </div>
       <ElTable
+        v-if="!collapsedSections.previousDay"
+        v-loading="previousDayLoading"
         class="probe-report-table"
         :data="previousDayReportRows"
         :span-method="mergeIspCells"
@@ -213,7 +245,12 @@
 
 <script setup lang="ts">
   import { useRoute } from 'vue-router'
-  import { fetchGetProbeNodes, fetchGetProbeReport, fetchGetProbeTrend } from '@/api/detection'
+  import {
+    fetchGetProbeNodes,
+    fetchGetProbePreviousDayReport,
+    fetchGetProbeReport,
+    fetchGetProbeTrend
+  } from '@/api/detection'
   import { useChartOps } from '@/hooks/core/useChart'
   import type { LineDataItem } from '@/types/component/chart'
   import { formatBeijingMinute } from '@/utils/date'
@@ -221,6 +258,7 @@
   defineOptions({ name: 'ProbeTrendPage' })
 
   type MetricType = 'loss' | 'latency'
+  type ReportSection = 'summary' | 'previousDay'
   type MergedPeriodReportRow = {
     province: number | null
     provinceName: string
@@ -248,13 +286,21 @@
   const protocolType = ref<Api.Detection.ProtocolType>('icmp')
   const metric = ref<MetricType>('loss')
   const reportData = ref<Api.Detection.ProbeReportData>()
+  const previousDayData = ref<Api.Detection.ProbePreviousDayReportData>()
   const trendData = ref<Api.Detection.ProbeTrendData>()
   const nodeLoading = ref(false)
+  const collapsedSections = reactive<Record<ReportSection, boolean>>({
+    summary: true,
+    previousDay: true
+  })
   const reportLoading = ref(false)
+  const previousDayLoading = ref(false)
   const trendLoading = ref(false)
   let reportRequestSerial = 0
+  let previousDayRequestSerial = 0
   let trendRequestSerial = 0
 
+  const selectedNode = computed(() => nodes.value.find((node) => node.id === sourceIpId.value))
   const probeMode = computed<Api.Detection.ProbeMode>(() =>
     route.name === 'CrossProvinceDetection' ? 2 : 1
   )
@@ -309,7 +355,15 @@
    * @returns 带运营商合并跨度的昨日对比行。
    */
   const previousDayReportRows = computed(() =>
-    groupReportRows(mergePeriodReportRows(reportData.value?.previousDayRows ?? []))
+    groupReportRows(mergePeriodReportRows(previousDayData.value?.rows ?? []))
+  )
+
+  /**
+   * 判断概览、昨日报告或趋势是否仍在加载。
+   * @returns 任一请求未结束时返回 true。
+   */
+  const probeDataLoading = computed(
+    () => reportLoading.value || previousDayLoading.value || trendLoading.value
   )
 
   /**
@@ -489,6 +543,26 @@
   }
 
   /**
+   * 查询当前节点和模式的昨日分时报告，并忽略较早请求的迟到响应。
+   * @returns 无返回值。
+   */
+  async function loadPreviousDayReport(): Promise<void> {
+    if (!sourceIpId.value) return
+    const currentSerial = ++previousDayRequestSerial
+    previousDayData.value = undefined
+    previousDayLoading.value = true
+    try {
+      const data = await fetchGetProbePreviousDayReport({
+        sourceIpId: sourceIpId.value,
+        probeMode: probeMode.value
+      })
+      if (currentSerial === previousDayRequestSerial) previousDayData.value = data
+    } finally {
+      if (currentSerial === previousDayRequestSerial) previousDayLoading.value = false
+    }
+  }
+
+  /**
    * 查询当前筛选条件对应的探测趋势，并忽略较早请求的迟到响应。
    * @returns 无返回值。
    */
@@ -510,15 +584,43 @@
   }
 
   /**
-   * 并行刷新当前筛选条件对应的概览报告与趋势数据。
+   * 并行刷新依赖时间范围的概览报告与趋势数据。
    * @returns 两类数据请求均结束后的 Promise。
    */
-  async function loadProbeData(): Promise<void> {
+  async function loadRangeData(): Promise<void> {
     await Promise.all([loadReport(), loadTrend()])
   }
 
   /**
-   * 加载探测节点并默认选择首项，结束节点加载状态后刷新报告与趋势。
+   * 并行刷新概览报告、昨日报告与趋势数据。
+   * @returns 全部数据请求均结束后的 Promise。
+   */
+  async function loadProbeData(): Promise<void> {
+    await Promise.all([loadRangeData(), loadPreviousDayReport()])
+  }
+
+  /**
+   * 切换报告表格区块的折叠状态。
+   * @param section 探测汇总或昨日探测区块。
+   * @returns 无返回值。
+   */
+  function toggleSection(section: ReportSection): void {
+    collapsedSections[section] = !collapsedSections[section]
+  }
+
+  /**
+   * 获取探测节点在线状态的展示文字与标签类型。
+   * @param node 探测节点。
+   * @returns 在线状态文字及 ElTag 类型。
+   */
+  function getNodeStatus(node: Api.Detection.ProbeNode) {
+    return node.online
+      ? { text: '在线', type: 'success' as const }
+      : { text: '离线', type: 'info' as const }
+  }
+
+  /**
+   * 加载在线节点靠前的探测节点并默认选择首项，结束节点加载状态后刷新报告与趋势。
    * @returns 无返回值。
    */
   async function loadNodes(): Promise<void> {
@@ -533,7 +635,7 @@
   }
 
   /**
-   * 节点变化后刷新概览报告与趋势。
+   * 节点变化后刷新概览报告、昨日报告与趋势。
    * @returns 无返回值。
    */
   function handleNodeChange(): void {
@@ -541,11 +643,11 @@
   }
 
   /**
-   * 时间范围变化后刷新概览报告与趋势。
+   * 时间范围变化后仅刷新概览报告与趋势，昨日报告与范围无关无需重新查询。
    * @returns 无返回值。
    */
   function handleRangeChange(): void {
-    void loadProbeData()
+    void loadRangeData()
   }
 
   /**
@@ -563,11 +665,12 @@
   function handleMonthChange(): void {
     if (!month.value) return
     rangeType.value = 'month'
-    void loadProbeData()
+    void loadRangeData()
   }
 
   watch(probeMode, () => {
     reportData.value = undefined
+    previousDayData.value = undefined
     trendData.value = undefined
     void loadProbeData()
   })

@@ -686,7 +686,8 @@
       () => props.shiftLegendExclusiveSelect
     ],
     renderChart,
-    { deep: true }
+    // DOM 更新后再渲染，确保可见性判断基于最新布局
+    { deep: true, flush: 'post' }
   )
 
   // 生命周期
