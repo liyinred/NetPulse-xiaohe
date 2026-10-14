@@ -1098,9 +1098,10 @@ def get_user_probe_trend(
 ) -> ProbeTrendData:
     """查询符合异网或同运营商跨省规则的目标在指定范围内的聚合趋势。
 
-    数据按范围对应的时间桶求平均，桶起点按聚合粒度对齐 Unix 时间戳；
-    每个序列以稠密数组按下标对齐完整时间桶轴，无数据的时间桶为 None；
-    范围内该协议无数据或全部为 100% 丢包的目标节点不返回趋势序列。
+    先在状态表内按目标 IP 和时间桶聚合，并通过 HAVING MIN(loss_rate) 在数据库中
+    剔除范围内该协议全部为 100% 丢包的目标，再关联 IPDict 按探测分类过滤；
+    桶起点按聚合粒度对齐 Unix 时间戳，每个序列以稠密数组按下标对齐完整时间桶轴，
+    无数据的时间桶为 None。
 
     参数:
         user_id: 当前登录用户的内部主键。
@@ -1130,54 +1131,68 @@ def get_user_probe_trend(
             source_ip_id,
         )
 
-        bucket_time = (
-            state_model.time_id - state_model.time_id % bucket_seconds
-        ).label("bucket_time")
-        statement = (
-            select(
-                bucket_time,
-                IPDict.id.label("target_ip_id"),
-                IPDict.ip,
-                IPDict.province,
-                IPDict.isp,
-                func.avg(state_model.loss_rate).label("loss_rate"),
-                func.avg(state_model.rtt_ms).label("rtt_ms"),
-            )
-            .join(IPDict, IPDict.id == state_model.target_ip_id)
-            .where(
-                state_model.source_ip_id == source_ip_id,
-                state_model.probe_mode == probe_mode,
-                state_model.time_id.between(start_time, end_time),
-            )
-            .group_by(
-                IPDict.id,
-                IPDict.ip,
-                IPDict.province,
-                IPDict.isp,
-                bucket_time,
-            )
-            .order_by(IPDict.id, bucket_time)
-        )
-        statement = _filter_probe_mode(
-            statement, source_province, source_isp, probe_mode
-        )
+        source_conditions = [
+            state_model.source_ip_id == source_ip_id,
+            state_model.probe_mode == probe_mode,
+            state_model.time_id.between(start_time, end_time),
+        ]
         if user_level < UserLevel.PREMIUM:
-            statement = statement.where(
+            source_conditions.append(
                 state_model.device_related_id.in_(
                     select(Device.id).where(Device.user_id == user_id)
                 )
             )
+        reachable_target_ids = (
+            select(state_model.target_ip_id)
+            .where(*source_conditions)
+            .group_by(state_model.target_ip_id)
+            .having(func.min(state_model.loss_rate) < PROBE_FULL_LOSS_RATE)
+            # 与外层聚合同表，禁止自动关联以保证子查询独立扫描
+            .correlate(None)
+        )
+        bucket_time = (
+            state_model.time_id - state_model.time_id % bucket_seconds
+        ).label("bucket_time")
+        bucket_values = (
+            select(
+                state_model.target_ip_id,
+                bucket_time,
+                func.avg(state_model.loss_rate).label("loss_rate"),
+                func.avg(state_model.rtt_ms).label("rtt_ms"),
+            )
+            .where(
+                *source_conditions,
+                state_model.target_ip_id.in_(reachable_target_ids),
+            )
+            .group_by(state_model.target_ip_id, bucket_time)
+            .subquery("bucket_values")
+        )
+        statement = (
+            select(
+                bucket_values.c.target_ip_id,
+                bucket_values.c.bucket_time,
+                bucket_values.c.loss_rate,
+                bucket_values.c.rtt_ms,
+                IPDict.ip,
+                IPDict.province,
+                IPDict.isp,
+            )
+            .select_from(bucket_values)
+            .join(IPDict, IPDict.id == bucket_values.c.target_ip_id)
+            .order_by(bucket_values.c.target_ip_id)
+        )
+        statement = _filter_probe_mode(
+            statement, source_province, source_isp, probe_mode
+        )
         records = session.execute(statement).all()
     aligned_start = start_time - start_time % bucket_seconds
     bucket_count = (end_time - aligned_start) // bucket_seconds + 1
     series_by_target: dict[int, ProbeTrendSeries] = {}
-    reachable_target_ids: set[int] = set()
     for record in records:
-        if float(record.loss_rate) < PROBE_FULL_LOSS_RATE:
-            reachable_target_ids.add(record.target_ip_id)
-        series = series_by_target.setdefault(
-            record.target_ip_id,
-            ProbeTrendSeries(
+        # 每个目标仅构造一次序列，避免逐行创建并校验整条稠密数组
+        series = series_by_target.get(record.target_ip_id)
+        if series is None:
+            series = series_by_target[record.target_ip_id] = ProbeTrendSeries(
                 targetIpId=record.target_ip_id,
                 targetIp=record.ip,
                 isp=record.isp,
@@ -1188,8 +1203,7 @@ def get_user_probe_trend(
                 ),
                 lossRates=[None] * bucket_count,
                 latenciesMs=[None] * bucket_count,
-            ),
-        )
+            )
         bucket_index = (record.bucket_time - aligned_start) // bucket_seconds
         series.lossRates[bucket_index] = round(float(record.loss_rate) / 10, 1)
         series.latenciesMs[bucket_index] = round(float(record.rtt_ms), 1)
@@ -1197,11 +1211,7 @@ def get_user_probe_trend(
         startTime=start_time,
         endTime=end_time,
         intervalSeconds=bucket_seconds,
-        series=[
-            series
-            for target_ip_id, series in series_by_target.items()
-            if target_ip_id in reachable_target_ids
-        ],
+        series=list(series_by_target.values()),
     )
 
 

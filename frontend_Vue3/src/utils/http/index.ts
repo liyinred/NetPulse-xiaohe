@@ -184,7 +184,12 @@ async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> 
 
     return res.data.data as T
   } catch (error) {
-    if (error instanceof HttpError && error.code !== ApiStatus.unauthorized) {
+    // 调用方主动中止的过期请求无需提示错误
+    if (
+      error instanceof HttpError &&
+      error.code !== ApiStatus.unauthorized &&
+      !config.signal?.aborted
+    ) {
       const showMsg = config.showErrorMessage !== false
       showError(error, showMsg)
     }

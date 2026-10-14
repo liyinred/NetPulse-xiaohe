@@ -344,7 +344,7 @@
   const trendLoading = ref(false)
   let reportRequestSerial = 0
   let previousDayRequestSerial = 0
-  let trendRequestSerial = 0
+  let trendAbortController: AbortController | undefined
 
   const selectedNode = computed(() => nodes.value.find((node) => node.id === sourceIpId.value))
   const pageTitle = computed(
@@ -665,23 +665,27 @@
   }
 
   /**
-   * 查询当前筛选条件对应的探测趋势，并忽略较早请求的迟到响应。
-   * @returns 无返回值。
+   * 查询当前筛选条件对应的探测趋势，发起新请求前中止尚未完成的旧请求。
+   * @returns 无返回值；被中止的请求静默结束。
    */
   async function loadTrend(): Promise<void> {
     const params = buildProbeReportParams()
     if (!params) return
-    const currentSerial = ++trendRequestSerial
+    trendAbortController?.abort()
+    const controller = new AbortController()
+    trendAbortController = controller
     trendData.value = undefined
     trendLoading.value = true
     try {
-      const data = await fetchGetProbeTrend({
-        ...params,
-        protocolType: protocolType.value
-      })
-      if (currentSerial === trendRequestSerial) trendData.value = data
+      const data = await fetchGetProbeTrend(
+        { ...params, protocolType: protocolType.value },
+        controller.signal
+      )
+      if (!controller.signal.aborted) trendData.value = data
+    } catch (error) {
+      if (!controller.signal.aborted) throw error
     } finally {
-      if (currentSerial === trendRequestSerial) trendLoading.value = false
+      if (trendAbortController === controller) trendLoading.value = false
     }
   }
 
@@ -780,6 +784,10 @@
 
   onMounted(() => {
     void loadNodes()
+  })
+
+  onBeforeUnmount(() => {
+    trendAbortController?.abort()
   })
 </script>
 

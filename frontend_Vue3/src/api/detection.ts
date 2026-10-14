@@ -10,15 +10,21 @@ export function fetchGetProbeNodes() {
   })
 }
 
+/** 趋势接口聚合数据量较大，单独放宽请求超时毫秒数 */
+const PROBE_TREND_TIMEOUT = 30000
+
 /**
  * 获取指定节点、模式和北京时间范围按时间桶聚合的探测趋势。
  * @param params 探测节点、模式和时间范围参数。
+ * @param signal 可选的取消信号，用于中止过期请求。
  * @returns 聚合粒度及按目标 IP 分组的探测趋势。
  */
-export function fetchGetProbeTrend(params: Api.Detection.ProbeTrendParams) {
+export function fetchGetProbeTrend(params: Api.Detection.ProbeTrendParams, signal?: AbortSignal) {
   return request.get<Api.Detection.ProbeTrendData>({
     url: '/api/probes/trend',
-    params
+    params,
+    signal,
+    timeout: PROBE_TREND_TIMEOUT
   })
 }
 
