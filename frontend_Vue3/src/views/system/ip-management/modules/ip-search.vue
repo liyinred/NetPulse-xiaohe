@@ -9,6 +9,8 @@
 </template>
 
 <script setup lang="ts">
+  import { ISP_OPTIONS } from '@/utils/constants'
+
   interface Props {
     modelValue: Api.SystemManage.IPSearchParams
   }
@@ -92,12 +94,7 @@
       props: {
         placeholder: '请选择运营商',
         clearable: true,
-        options: [
-          { label: '电信', value: 1 },
-          { label: '移动', value: 2 },
-          { label: '联通', value: 3 },
-          { label: '其他运营商', value: 4 }
-        ]
+        options: ISP_OPTIONS
       }
     },
     {

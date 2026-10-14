@@ -64,7 +64,6 @@ PROBE_RANGE_DAYS = {"1d": 1, "2d": 2, "7d": 7}
 PROBE_TREND_BUCKET_SECONDS = {"1d": 60, "2d": 120, "7d": 600, "month": 1800}
 # 探测状态表中以千分比存储的全丢包值
 PROBE_FULL_LOSS_RATE = 1000
-REPORT_LOSS_FAILURE_RATE = 100.0
 REPORT_LATENCY_FAILURE_MS = 300.0
 ALERT_LOSS_RATE_THRESHOLD = 100
 ALERT_CONFIRM_WINDOWS = 2
@@ -189,7 +188,7 @@ def _build_probe_report(
         start_time: 查询起始 Unix 时间戳。
         end_time: 查询结束 Unix 时间戳。
     返回:
-        统计起止时间、覆盖概况及三协议平均结果，延迟平均值排除 300ms 超时。
+        统计起止时间及三协议平均结果，延迟平均值排除 300ms 超时。
     """
     rows_by_network: dict[tuple[int | None, int | None], ProbeReportRow] = {}
     for protocol_type, state_model in PROBE_STATE_MODELS.items():
@@ -235,11 +234,6 @@ def _build_probe_report(
                     provinceName=PROVINCE_NAMES.get(record.province, "未知"),
                     isp=record.isp,
                     ispName=ISP_NAMES.get(record.isp, "未知"),
-                    isCrossProvince=(
-                        source_province is not None
-                        and record.province is not None
-                        and record.province != source_province
-                    ),
                 ),
             )
             setattr(
@@ -252,16 +246,9 @@ def _build_probe_report(
         rows_by_network.values(),
         key=lambda row: (row.isp or 0, row.province or 0),
     )
-    covered_provinces = _apply_probe_report_coverage(rows)
     return ProbeReportData(
         startTime=start_time,
         endTime=end_time,
-        sourceProvinceName=PROVINCE_NAMES.get(source_province, "未知"),
-        sourceIspName=ISP_NAMES.get(source_isp, "未知"),
-        crossProvinceCovered=any(
-            row.isCovered and row.isCrossProvince for row in rows
-        ),
-        coveredProvinces=covered_provinces,
         rows=rows,
     )
 
@@ -394,52 +381,6 @@ def _build_previous_day_report(
     return ProbePreviousDayReportData(
         date=previous_day_start.strftime("%Y-%m-%d"),
         rows=sorted_rows,
-    )
-
-
-def _has_probe_report_failure(row: ProbeReportRow) -> bool:
-    """判断报告分组是否包含达到失败阈值的协议指标。
-
-    参数:
-        row: 按目标省份和运营商聚合的报告分组。
-    返回:
-        任一协议的平均丢包或平均延迟达到失败阈值时返回 True。
-    """
-    summaries = (row.icmp, row.tcp, row.udp)
-    return any(
-        summary is not None
-        and (
-            summary.lossRate >= REPORT_LOSS_FAILURE_RATE
-            or summary.averageLatencyMs is None
-            or summary.averageLatencyMs >= REPORT_LATENCY_FAILURE_MS
-        )
-        for summary in summaries
-    )
-
-
-def _apply_probe_report_coverage(rows: list[ProbeReportRow]) -> list[str]:
-    """按省份传播失败状态并返回仍然覆盖的省份名称。
-
-    参数:
-        rows: 已完成三协议聚合的报告分组。
-    返回:
-        未出现失败阈值且网络属性已知的去重省份名称。
-    """
-    uncovered_provinces = {
-        row.province for row in rows if _has_probe_report_failure(row)
-    }
-    for row in rows:
-        row.isCovered = row.province not in uncovered_provinces
-    return list(
-        dict.fromkeys(
-            row.provinceName
-            for row in rows
-            if (
-                row.isCovered
-                and row.province is not None
-                and row.provinceName != "未知"
-            )
-        )
     )
 
 
@@ -1158,6 +1099,7 @@ def get_user_probe_trend(
     """查询符合异网或同运营商跨省规则的目标在指定范围内的聚合趋势。
 
     数据按范围对应的时间桶求平均，桶起点按聚合粒度对齐 Unix 时间戳；
+    每个序列以稠密数组按下标对齐完整时间桶轴，无数据的时间桶为 None；
     范围内该协议无数据或全部为 100% 丢包的目标节点不返回趋势序列。
 
     参数:
@@ -1226,6 +1168,8 @@ def get_user_probe_trend(
                 )
             )
         records = session.execute(statement).all()
+    aligned_start = start_time - start_time % bucket_seconds
+    bucket_count = (end_time - aligned_start) // bucket_seconds + 1
     series_by_target: dict[int, ProbeTrendSeries] = {}
     reachable_target_ids: set[int] = set()
     for record in records:
@@ -1236,21 +1180,19 @@ def get_user_probe_trend(
             ProbeTrendSeries(
                 targetIpId=record.target_ip_id,
                 targetIp=record.ip,
+                isp=record.isp,
                 label=format_probe_node_label(
                     record.province,
                     record.isp,
                     record.ip,
                 ),
-                points=[],
+                lossRates=[None] * bucket_count,
+                latenciesMs=[None] * bucket_count,
             ),
         )
-        series.points.append(
-            (
-                record.bucket_time,
-                round(float(record.loss_rate) / 10, 1),
-                round(float(record.rtt_ms), 1),
-            )
-        )
+        bucket_index = (record.bucket_time - aligned_start) // bucket_seconds
+        series.lossRates[bucket_index] = round(float(record.loss_rate) / 10, 1)
+        series.latenciesMs[bucket_index] = round(float(record.rtt_ms), 1)
     return ProbeTrendData(
         startTime=start_time,
         endTime=end_time,

@@ -55,7 +55,7 @@
       }
     },
     {
-      label: '接收告警类型',
+      label: '告警类型',
       key: 'alertType',
       type: 'select',
       props: {

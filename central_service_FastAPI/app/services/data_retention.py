@@ -17,7 +17,7 @@ from app.services.probe import PROBE_STATE_MODELS
 logger = logging.getLogger(__name__)
 
 PROBE_RETENTION_DAYS = 60
-PROBE_RETENTION_RUN_HOURS = (13, 23)
+PROBE_RETENTION_RUN_HOURS = (5,)
 # 单批删除行数，避免长事务和大量 undo log 阻塞探测结果写入
 PROBE_RETENTION_BATCH_SIZE = 5000
 
@@ -71,7 +71,7 @@ def _seconds_until_next_run(current_time: datetime) -> float:
     参数:
         current_time: 带时区的当前时间。
     返回:
-        距离下一个 13 点或 23 点整的秒数。
+        距离下一个北京时间 5 点整的秒数。
     """
     local_time = current_time.astimezone(BEIJING_TIMEZONE)
     day_start = local_time.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -85,7 +85,7 @@ def _seconds_until_next_run(current_time: datetime) -> float:
 
 
 async def run_probe_retention_scheduler() -> None:
-    """常驻执行探测数据保留清理，每天北京时间 13 点和 23 点各执行一次。
+    """常驻执行探测数据保留清理，每天北京时间 5 点执行一次。
 
     参数:
         无。

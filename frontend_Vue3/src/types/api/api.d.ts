@@ -112,15 +112,17 @@ declare namespace Api {
       online: boolean
     }
 
-    /** 单个时间桶的聚合探测值，timeId 为桶起点 */
-    type ProbeTrendPoint = [timeId: number, lossRate: number, averageLatencyMs: number]
-
-    /** 单个目标 IP 的探测趋势 */
+    /** 单个目标 IP 的探测趋势，数组下标与完整时间桶轴对齐，无数据的时间桶为 null */
     interface ProbeTrendSeries {
       targetIpId: number
       targetIp: string
+      /** 目标 IP 所属运营商编码 */
+      isp: number | null
       label: string
-      points: ProbeTrendPoint[]
+      /** 各时间桶平均丢包率百分比 */
+      lossRates: Array<number | null>
+      /** 各时间桶平均延迟毫秒数 */
+      latenciesMs: Array<number | null>
     }
 
     /** 单个协议的报告聚合结果 */
@@ -135,8 +137,6 @@ declare namespace Api {
       provinceName: string
       isp: number | null
       ispName: string
-      isCrossProvince: boolean
-      isCovered: boolean
       icmp: ProbeProtocolSummary | null
       tcp: ProbeProtocolSummary | null
       udp: ProbeProtocolSummary | null
@@ -154,14 +154,10 @@ declare namespace Api {
       udp: ProbeProtocolSummary | null
     }
 
-    /** 当前节点、统计时间范围及概括性覆盖报告 */
+    /** 当前节点的统计时间范围及分组报告 */
     interface ProbeReportData {
       startTime: number
       endTime: number
-      sourceProvinceName: string
-      sourceIspName: string
-      crossProvinceCovered: boolean
-      coveredProvinces: string[]
       rows: ProbeReportRow[]
     }
 
@@ -192,7 +188,7 @@ declare namespace Api {
     interface ProbeTrendData {
       startTime: number
       endTime: number
-      /** 趋势聚合粒度秒数，数据点按该粒度对齐 Unix 时间戳 */
+      /** 趋势聚合粒度秒数，时间桶轴从 startTime 按该粒度向下对齐的时间戳开始 */
       intervalSeconds: number
       series: ProbeTrendSeries[]
     }
@@ -369,6 +365,7 @@ declare namespace Api {
       subscribeStatus: number | null
       alertType: UserAlertType
       createdTime: number | null
+      updatedTime: number | null
     }
 
     /** 用户搜索参数 */

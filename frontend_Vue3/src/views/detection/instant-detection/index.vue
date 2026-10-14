@@ -222,6 +222,7 @@
   import { fetchCreateOnDemandProbe, fetchGetOnDemandProbe } from '@/api/detection'
   import { StorageConfig } from '@/utils/storage'
   import { validateIPAddress } from '@/utils/form/validator'
+  import { ISP_NAMES } from '@/utils/constants'
 
   defineOptions({ name: 'InstantDetection' })
 
@@ -274,7 +275,6 @@
     34: '台湾',
     35: '澳门'
   }
-  const ispNames: Record<number, string> = { 1: '电信', 2: '移动', 3: '联通', 4: '其他运营商' }
   const protocols: ProtocolType[] = ['icmp', 'tcp', 'udp']
   const coverageFailureThresholds = { lossRate: 1000, latencyMs: 300 }
   const lossRateWarningThreshold = 100
@@ -448,7 +448,7 @@
    * @returns 可读的网络归属名称。
    */
   function formatNetwork(province: number | null, isp: number | null): string {
-    return `${provinceNames[province ?? 0] ?? '未知省份'}${ispNames[isp ?? 0] ?? '未知运营商'}`
+    return `${provinceNames[province ?? 0] ?? '未知省份'}${ISP_NAMES[isp ?? 0] ?? '未知运营商'}`
   }
 
   /**

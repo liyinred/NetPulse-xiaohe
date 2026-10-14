@@ -18,6 +18,7 @@ USER_SORT_COLUMNS = {
     "subscribeStatus": User.subscribe_status,
     "alertType": User.alert_type,
     "createdTime": User.created_time,
+    "updatedTime": User.updated_time,
 }
 
 
@@ -36,6 +37,7 @@ def _build_user_list_item(user: User) -> UserListItem:
         subscribeStatus=user.subscribe_status,
         alertType=user.alert_type,
         createdTime=user.created_time,
+        updatedTime=user.updated_time,
     )
 
 

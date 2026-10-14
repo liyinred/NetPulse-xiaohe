@@ -41,6 +41,7 @@ class UserListItem(BaseModel):
     subscribeStatus: int | None
     alertType: Literal[0, 1, 2, 3]
     createdTime: int | None
+    updatedTime: int | None
 
 
 class UserListResponse(BaseModel):

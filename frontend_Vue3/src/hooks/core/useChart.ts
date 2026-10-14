@@ -483,11 +483,20 @@ export function useChart(options: UseChartOptions = {}) {
     }
   }
 
+  /**
+   * 将配置应用到图表实例，series 整体替换以移除新配置中已不存在的系列及其图例。
+   * @param options 待应用的 ECharts 配置。
+   * @returns 无返回值。
+   */
+  const applyChartOptions = (options: EChartsOption): void => {
+    chart?.setOption(options, { replaceMerge: ['series'] })
+  }
+
   // 图表初始化核心逻辑
   const performChartInit = (options: EChartsOption) => {
     ensureChartInstance()
     if (chart && !isDestroyed) {
-      chart.setOption(options)
+      applyChartOptions(options)
       pendingOptions = null
     }
   }
@@ -586,7 +595,7 @@ export function useChart(options: UseChartOptions = {}) {
         initChart(options)
         return
       }
-      chart.setOption(options)
+      applyChartOptions(options)
     } catch (error) {
       console.error('图表更新失败:', error)
     }

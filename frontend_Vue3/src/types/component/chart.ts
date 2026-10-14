@@ -226,6 +226,8 @@ export interface LineChartProps extends BaseChartProps, AxisDisplayProps, Intera
   tooltipFontSize?: number
   /** tooltip 每列的最大条目数，未设置时使用单列 */
   tooltipRowsPerColumn?: number
+  /** tooltip 最多展示的列数，超出部分不展示，未设置时展示全部条目 */
+  tooltipMaxColumns?: number
   /** emphasis 状态下是否加粗曲线 */
   thickenOnEmphasis?: boolean
   /** 是否使用 ECharts 内置颜色组 */

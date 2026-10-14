@@ -255,7 +255,7 @@
   }
 
   /**
-   * 按指标降序构建全部系列的 tooltip，并按配置条目数从左到右分列。
+   * 按指标降序构建全部系列的 tooltip，按配置条目数从左到右分列，并按最大列数截断条目。
    * @param parameters ECharts 当前坐标轴的系列参数。
    * @returns 可由 ECharts 安全渲染的 DOM 节点。
    */
@@ -287,8 +287,11 @@
         1,
         Math.floor(props.tooltipRowsPerColumn ?? sortedItems.length)
       )
+      const visibleItems = props.tooltipMaxColumns
+        ? sortedItems.slice(0, rowsPerColumn * Math.max(1, Math.floor(props.tooltipMaxColumns)))
+        : sortedItems
       let column: HTMLElement
-      sortedItems.forEach(({ item, index, value }, itemIndex) => {
+      visibleItems.forEach(({ item, index, value }, itemIndex) => {
         if (itemIndex % rowsPerColumn === 0) {
           column = document.createElement('div')
           column.className = 'flex flex-col whitespace-nowrap'
@@ -637,6 +640,7 @@
       () => props.emphasizeYAxisName,
       () => props.compactTooltip,
       () => props.tooltipRowsPerColumn,
+      () => props.tooltipMaxColumns,
       () => props.legendSingleRow,
       () => props.thickenOnEmphasis,
       () => props.legendHoverLink,
@@ -680,6 +684,7 @@
       () => props.emphasizeYAxisName,
       () => props.compactTooltip,
       () => props.tooltipRowsPerColumn,
+      () => props.tooltipMaxColumns,
       () => props.legendSingleRow,
       () => props.thickenOnEmphasis,
       () => props.legendHoverLink,

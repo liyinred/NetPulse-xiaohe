@@ -25,21 +25,12 @@ export const detectionRoutes: AppRouteRecord[] = [
     }
   },
   {
-    path: '/external-network-detection',
-    name: 'ExternalNetworkDetection',
-    component: '/detection/blank',
+    path: '/probe-analysis',
+    name: 'ProbeAnalysis',
+    component: '/detection/probe-analysis',
     meta: {
-      title: '异网探测',
+      title: '探测分析',
       icon: 'mingcute:route-line'
-    }
-  },
-  {
-    path: '/cross-province-detection',
-    name: 'CrossProvinceDetection',
-    component: '/detection/blank',
-    meta: {
-      title: '跨省探测',
-      icon: 'ri:road-map-line'
     }
   }
 ]

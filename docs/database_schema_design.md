@@ -123,7 +123,7 @@ FastAPI 服务通过 `normalize_province` 将 IP 归属查询接口返回的省�
 
 事件经设备归属、目标和分类校验后入库；中央服务事件的 `message` 包含事件类型和丢包率。
 
-中央服务启动后常驻数据保留任务，每天北京时间 13:00 和 23:00 按北京时间自然日边界，分批删除最近 60 个完整自然日之前的 `probe_state_{type}`（按 `time_id`）及 `alert_events`（按 `occurred_at`）记录；`probe_alert_states` 为告警状态机当前状态，不参与清理。
+中央服务启动后常驻数据保留任务，每天北京时间 05:00 按北京时间自然日边界，分批删除最近 60 个完整自然日之前的 `probe_state_{type}`（按 `time_id`）及 `alert_events`（按 `occurred_at`）记录；`probe_alert_states` 为告警状态机当前状态，不参与清理。
 
 #### `probe_alert_states`
 

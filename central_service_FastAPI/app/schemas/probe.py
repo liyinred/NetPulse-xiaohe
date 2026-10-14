@@ -110,16 +110,19 @@ class ProbeNodesResponse(BaseModel):
     data: list[ProbeNodeItem]
 
 
-ProbeTrendPoint = tuple[int, float, float]
-
-
 class ProbeTrendSeries(BaseModel):
-    """保存一个目标 IP 的探测趋势序列，数据点依次为时间、丢包率和延迟。"""
+    """保存一个目标 IP 的稠密探测趋势序列。
+
+    lossRates 与 latenciesMs 按下标对齐查询范围内的完整时间桶轴，
+    无数据的时间桶为 None。
+    """
 
     targetIpId: int
     targetIp: str
+    isp: int | None
     label: str
-    points: list[ProbeTrendPoint]
+    lossRates: list[float | None]
+    latenciesMs: list[float | None]
 
 
 class ProbeProtocolSummary(BaseModel):
@@ -136,8 +139,6 @@ class ProbeReportRow(BaseModel):
     provinceName: str
     isp: int | None
     ispName: str
-    isCrossProvince: bool
-    isCovered: bool = True
     icmp: ProbeProtocolSummary | None = None
     tcp: ProbeProtocolSummary | None = None
     udp: ProbeProtocolSummary | None = None
@@ -157,14 +158,10 @@ class ProbePeriodReportRow(BaseModel):
 
 
 class ProbeReportData(BaseModel):
-    """保存当前节点、统计时间范围及概括性覆盖报告。"""
+    """保存当前节点的统计时间范围及分组报告。"""
 
     startTime: int
     endTime: int
-    sourceProvinceName: str
-    sourceIspName: str
-    crossProvinceCovered: bool
-    coveredProvinces: list[str]
     rows: list[ProbeReportRow]
 
 
@@ -194,7 +191,8 @@ class ProbePreviousDayReportResponse(BaseModel):
 class ProbeTrendData(BaseModel):
     """保存指定查询范围、聚合粒度及其中的目标 IP 趋势序列。
 
-    数据点时间为按 intervalSeconds 对齐 Unix 时间戳的桶起点。
+    完整时间桶轴从 startTime - startTime % intervalSeconds 开始，
+    以 intervalSeconds 递增至不超过 endTime，序列数组下标与之一一对应。
     """
 
     startTime: int

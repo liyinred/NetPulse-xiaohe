@@ -96,7 +96,7 @@
         ...searchForm.value
       },
       columnsFactory: () => [
-        { type: 'globalIndex', width: 80, label: '序号' },
+        { prop: 'id', width: 80, label: '用户ID' },
         { prop: 'openid', label: 'openid', minWidth: 280, sortable: 'custom' },
         {
           prop: 'userLevel',
@@ -134,6 +134,18 @@
           minWidth: 180,
           sortable: 'custom',
           formatter: (row) => formatBeijingTime(row.createdTime)
+        },
+        {
+          prop: 'updatedTime',
+          label: '更新时间',
+          minWidth: 180,
+          sortable: 'custom',
+          /**
+           * 将用户更新时间格式化为北京时间。
+           * @param row 当前用户表格记录。
+           * @returns 格式化的更新时间，空值返回短横线。
+           */
+          formatter: (row) => formatBeijingTime(row.updatedTime)
         },
         {
           prop: 'operation',
