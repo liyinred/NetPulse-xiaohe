@@ -1,0 +1,7 @@
+- `central_service_FastAPI`文件夹: FastAPI中央服务项目
+- `terminal_agent_Golang`文件夹: Golang终端agent项目
+- `frontend_Vue3`文件夹: 前端Vue3项目
+- `docs`文件夹: 项目说明文档
+- `Python`环境: `pcdn-tx` Conda环境
+- 数据库迁移: `alembic`工具, 对应路径为 `central_service_FastAPI/alembic`
+- 不开启Vue3端口，不执行`build`操作

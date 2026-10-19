@@ -1,0 +1,22 @@
+"""微信 API 数据模型。"""
+
+from pydantic import BaseModel
+
+from app.schemas.device import DeviceNetworkInfo
+
+
+class QRCodeResponse(BaseModel):
+    """带参数二维码创建结果。"""
+
+    scene_str: str
+    ticket: str
+    expire_seconds: int
+    url: str
+    image_url: str
+
+
+class QRCodeStatusResponse(BaseModel):
+    """带参数二维码登录状态。"""
+
+    matched: bool
+    device: DeviceNetworkInfo | None = None

@@ -1,0 +1,292 @@
+// Package app 编排 Agent 的设备身份、二维码登录和绑定流程。
+package app
+
+import (
+	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"io"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"time"
+
+	"netpulse/terminal-agent/internal/client"
+	"netpulse/terminal-agent/internal/config"
+	"netpulse/terminal-agent/internal/probe"
+
+	qrcode "github.com/skip2/go-qrcode"
+)
+
+const (
+	backendBaseURL  = "http://175.4.50.59:8086"
+	requestTimeout  = 3 * time.Second
+	ipv4RetryDelay  = 3 * time.Second
+	ipv4MaxAttempts = 3
+	logFileName     = "netpulse-agent.log"
+)
+
+// Run 先检查公网直连资格，再配置防火墙、更新设备绑定并启动完整探测。
+//
+// 参数:
+//   - ctx: 控制 Agent 退出的 Context。
+//   - output: 输出二维码和运行状态的 Writer。
+//
+// 返回值: 流程成功时返回 nil，否则返回具体错误。
+func Run(ctx context.Context, output io.Writer) error {
+	fmt.Fprintln(output, "NetPulse Agent 正在初始化...")
+	configPath, err := config.ExecutablePath()
+	if err != nil {
+		return err
+	}
+	logFile, err := openLogFile(configPath)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	backend := client.NewBackend(backendBaseURL, requestTimeout, logFile)
+	fmt.Fprintln(output, "正在检查公网直连资格，NAT 设备不允许使用...")
+	sourceIPv4, err := waitForPublicIPv4(ctx, output, backend)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "  公网 IPv4：%s（本地源 IP 一致）\n", sourceIPv4)
+	var sourceIPv6 *netip.Addr
+	publicIPv6, ipv6Err := backend.GetPublicIPv6(ctx)
+	if ipv6Err == nil {
+		sourceIPv6 = &publicIPv6
+		fmt.Fprintf(output, "  公网 IPv6：%s（本地源 IP 一致）\n", publicIPv6)
+	} else if errors.Is(ipv6Err, client.ErrNATDevice) {
+		return ipv6Err
+	} else {
+		fmt.Fprintln(output, "  公网 IPv6：未检测到，本次将仅使用 IPv4")
+	}
+
+	firewallBackend, err := configureLinuxFirewall(ctx)
+	if err != nil {
+		fmt.Fprintf(output, "  防火墙：自动配置失败，不影响 Agent 继续运行：%v\n", err)
+	}
+	if firewallBackend != "" && err == nil {
+		fmt.Fprintf(
+			output,
+			"  防火墙：已通过 Linux %s 放行 UDP 23435 和 TCP 80、23434 的入站及出站流量\n",
+			firewallBackend,
+		)
+	}
+
+	agentConfig, _, err := config.LoadOrCreate(configPath)
+	if err != nil {
+		return err
+	}
+
+	deviceID := agentConfig.DeviceID()
+	needsNewDeviceID := deviceID == ""
+	if !needsNewDeviceID {
+		exists, validationErr := backend.DeviceExists(ctx, deviceID)
+		if validationErr != nil {
+			return fmt.Errorf("验证本地 device_id 失败: %w", validationErr)
+		}
+		needsNewDeviceID = !exists
+	}
+	if needsNewDeviceID {
+		deviceID, err = generateDeviceID()
+		if err != nil {
+			return err
+		}
+		agentConfig.SetDeviceID(deviceID)
+	}
+	if err := config.Write(configPath, agentConfig); err != nil {
+		return err
+	}
+
+	qrCode, err := backend.RequestQRCode(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(output, "\n初始化完成，请使用微信扫描下方二维码并关注服务号：")
+	if err := printQRCode(output, qrCode.URL); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(output, "正在等待扫码确认...")
+	bindingInfo, err := backend.WaitForLogin(
+		ctx,
+		qrCode.SceneString,
+		deviceID,
+		sourceIPv4,
+		sourceIPv6,
+		time.Duration(qrCode.ExpireSeconds)*time.Second,
+	)
+	if err != nil {
+		return fmt.Errorf("设备绑定更新失败: %w", err)
+	}
+
+	printBindingInfo(output, bindingInfo)
+	udpResponder, err := probe.StartUDPResponder(ctx, sourceIPv6 != nil)
+	if err != nil {
+		return err
+	}
+	defer udpResponder.Close()
+	tcpResponder, err := probe.StartTCPResponder(ctx, sourceIPv6 != nil)
+	if err != nil {
+		return err
+	}
+	defer tcpResponder.Close()
+	onDemandRunner := probe.NewOnDemandRunner(
+		backend,
+		deviceID,
+		sourceIPv4,
+		sourceIPv6,
+		output,
+	)
+	mtrRunner := probe.NewMTRRunner(backend, deviceID, sourceIPv4, sourceIPv6, output)
+	go func() {
+		if runnerErr := mtrRunner.Run(ctx); runnerErr != nil && ctx.Err() == nil {
+			fmt.Fprintf(output, "双向 MTR 轮询已停止: %v\n", runnerErr)
+		}
+	}()
+
+	go func() {
+		if runnerErr := onDemandRunner.Run(ctx); runnerErr != nil && ctx.Err() == nil {
+			fmt.Fprintf(output, "即时 IP 探测轮询已停止: %v\n", runnerErr)
+		}
+	}()
+	fmt.Fprintln(output, "已启动完整探测模式，正在获取异网和跨省探测目标...")
+	probeEngine := probe.NewEngine(
+		backend,
+		deviceID,
+		sourceIPv4,
+		sourceIPv6,
+		output,
+	)
+	return probeEngine.Run(ctx)
+}
+
+// openLogFile 在配置文件同目录打开默认追加日志文件。
+//
+// 参数:
+//   - configPath: Agent 配置文件的绝对路径。
+//
+// 返回值: 可追加写入的日志文件；创建或打开失败时返回错误。
+func openLogFile(configPath string) (*os.File, error) {
+	logPath := filepath.Join(filepath.Dir(configPath), logFileName)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("创建日志文件失败: %w", err)
+	}
+	return logFile, nil
+}
+
+// printBindingInfo 在终端展示绑定成功后的设备和网络信息。
+//
+// 参数:
+//   - output: 接收设备信息的 Writer。
+//   - bindingInfo: 中央服务返回的设备网络信息。
+//
+// 返回值: 无。
+func printBindingInfo(output io.Writer, bindingInfo client.BindingInfo) {
+	fmt.Fprintln(output, "\n设备绑定成功，已完成设备信息更新：")
+	fmt.Fprintf(output, "  设备 ID：%s\n", bindingInfo.DeviceID)
+	fmt.Fprintf(output, "  公网 IPv4：%s\n", bindingInfo.PublicIPv4)
+	if bindingInfo.PublicIPv6 != nil {
+		fmt.Fprintf(output, "  公网 IPv6：%s\n", *bindingInfo.PublicIPv6)
+	} else {
+		fmt.Fprintln(output, "  公网 IPv6：未检测到")
+	}
+	fmt.Fprintf(
+		output,
+		"  省市：%s %s\n",
+		bindingInfo.ProvinceName,
+		bindingInfo.City,
+	)
+	fmt.Fprintf(output, "  运营商：%s\n", bindingInfo.ISPName)
+}
+
+// waitForPublicIPv4 最多尝试三次获取公网 IPv4。
+//
+// 参数:
+//   - ctx: 控制重试取消的 Context。
+//   - output: 输出失败提示和重试状态的 Writer。
+//   - backend: FastAPI 中央服务 Client。
+//
+// 返回值: 通过直连检查的公网 IPv4；NAT 立即返回错误，其他错误最多重试三次。
+func waitForPublicIPv4(
+	ctx context.Context,
+	output io.Writer,
+	backend *client.Backend,
+) (netip.Addr, error) {
+	for attempt := 1; ; attempt++ {
+		publicIPv4, err := backend.GetPublicIPv4(ctx)
+		if err == nil {
+			return publicIPv4, nil
+		}
+		if errors.Is(err, client.ErrNATDevice) {
+			return netip.Addr{}, err
+		}
+		if attempt >= ipv4MaxAttempts {
+			return netip.Addr{}, fmt.Errorf(
+				"公网 IPv4 检测失败，已尝试 %d 次：%w",
+				ipv4MaxAttempts,
+				err,
+			)
+		}
+		fmt.Fprintf(
+			output,
+			"  公网 IPv4：第 %d/%d 次检测失败，将在 %s 后重试：%v\n",
+			attempt,
+			ipv4MaxAttempts,
+			ipv4RetryDelay,
+			err,
+		)
+
+		retryTimer := time.NewTimer(ipv4RetryDelay)
+		select {
+		case <-ctx.Done():
+			if !retryTimer.Stop() {
+				<-retryTimer.C
+			}
+			return netip.Addr{}, ctx.Err()
+		case <-retryTimer.C:
+		}
+	}
+}
+
+// printQRCode 将二维码 URL 编码为适合终端展示的紧凑字符图形。
+//
+// 参数:
+//   - output: 接收终端二维码的 Writer。
+//   - content: 后端二维码响应中的微信访问 URL。
+//
+// 返回值: 二维码生成成功时返回 nil，否则返回编码错误。
+func printQRCode(output io.Writer, content string) error {
+	code, err := qrcode.New(content, qrcode.Medium)
+	if err != nil {
+		return fmt.Errorf("生成终端二维码失败: %w", err)
+	}
+	if _, err := fmt.Fprint(output, code.ToSmallString(false)); err != nil {
+		return fmt.Errorf("输出终端二维码失败: %w", err)
+	}
+	return nil
+}
+
+// generateDeviceID 使用加密安全随机数生成 UUID v4 设备标识。
+//
+// 参数: 无。
+// 返回值: UUID v4 字符串；随机数读取失败时返回错误。
+func generateDeviceID() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("生成 device_id 失败: %w", err)
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf(
+		"%x-%x-%x-%x-%x",
+		value[0:4],
+		value[4:6],
+		value[6:8],
+		value[8:10],
+		value[10:16],
+	), nil
+}
