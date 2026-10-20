@@ -2,9 +2,10 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
 from app.models.user import User
+from app.schemas.cdk import CdkCurrentData, CdkCurrentResponse
 from app.schemas.pagination import PaginationParams
 from app.schemas.user import (
     AlertType,
@@ -15,6 +16,7 @@ from app.schemas.user import (
     UserUpdateResponse,
 )
 from app.services.auth import get_current_admin
+from app.services.cdk import get_cdk_snapshot
 from app.services.user import list_users, update_user
 
 
@@ -62,6 +64,32 @@ def get_user_list(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return UserListResponse(data=data)
+
+
+@router.get("/cdk/current", response_model=CdkCurrentResponse)
+def get_current_cdk(
+    response: Response,
+    _: Annotated[User, Depends(get_current_admin)],
+) -> CdkCurrentResponse:
+    """获取当前有效的 CDK 及其剩余时间。
+
+    参数:
+        response: FastAPI 响应对象，用于设置禁用缓存响应头。
+        _: 管理员认证依赖解析出的当前用户。
+    返回:
+        统一响应包装的当前 CDK 数据。
+    """
+    response.headers["Cache-Control"] = "no-store"
+    snapshot = get_cdk_snapshot()
+    return CdkCurrentResponse(
+        data=CdkCurrentData(
+            code=snapshot.code,
+            createdTime=snapshot.created_time,
+            expireTime=snapshot.expire_time,
+            serverTime=snapshot.server_time,
+            expireSeconds=max(0, snapshot.expire_time - snapshot.server_time),
+        )
+    )
 
 
 @router.put(
