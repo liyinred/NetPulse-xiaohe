@@ -3,7 +3,11 @@
     <UserSearch v-model="searchForm" @search="handleSearch" @reset="resetSearchParams" />
 
     <ElCard class="art-table-card">
-      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData" />
+      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
+        <template #left>
+          <CdkCode />
+        </template>
+      </ArtTableHeader>
       <ArtTable
         :loading="loading"
         :data="data"
@@ -33,6 +37,7 @@
   import { formatBeijingTime } from '@/utils/date'
   import { getUserLevelConfig } from '@/utils/constants'
   import { ALERT_TYPE_CONFIG } from './alert-type'
+  import CdkCode from './modules/cdk-code.vue'
   import UserDialog from './modules/user-dialog.vue'
   import UserSearch from './modules/user-search.vue'
 
