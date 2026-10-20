@@ -380,6 +380,15 @@ declare namespace Api {
       alertType: UserAlertType
     }
 
+    /** 当前 CDK 兑换码信息 */
+    interface CdkInfo {
+      code: string
+      createdTime: number
+      expireTime: number
+      serverTime: number
+      expireSeconds: number
+    }
+
     /** HTTP 5xx 错误日志列表 */
     type HttpErrorLogList = Api.Common.PaginatedResponse<HttpErrorLogItem>
 
