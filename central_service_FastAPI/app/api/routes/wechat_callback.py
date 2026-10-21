@@ -9,13 +9,14 @@ import xml.etree.ElementTree as ET
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import WECHAT_APP_ID, WECHAT_ENCODING_AES_KEY, WECHAT_TOKEN
 from app.db.session import SessionLocal
 from app.models.user import User
+from app.services.cdk import handle_cdk_text
 
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
 QR_SCENE_PREFIX = "qrscene_"
@@ -123,6 +124,37 @@ def decrypt_message(encrypted: str) -> tuple[str, str]:
     except (binascii.Error, ValueError, UnicodeDecodeError, struct.error) as exc:
         raise ValueError("微信消息解密失败") from exc
     return message, app_id
+
+
+def _cdata(value: str) -> str:
+    """将文本包装为可安全嵌入 XML 的 CDATA 片段。
+
+    参数:
+        value: 待包装的文本。
+    返回:
+        转义了 CDATA 结束符的 CDATA 字符串。
+    """
+    return "<![CDATA[" + value.replace("]]>", "]]]]><![CDATA[>") + "]]>"
+
+
+def build_text_reply_xml(message: dict[str, str], content: str) -> str:
+    """构造微信被动回复的文本消息 XML。
+
+    参数:
+        message: 解析后的微信请求 XML 一级字段。
+        content: 回复正文。
+    返回:
+        可直接返回给微信的明文 XML。
+    """
+    return (
+        "<xml>"
+        f"<ToUserName>{_cdata(message.get('FromUserName', ''))}</ToUserName>"
+        f"<FromUserName>{_cdata(message.get('ToUserName', ''))}</FromUserName>"
+        f"<CreateTime>{int(time())}</CreateTime>"
+        "<MsgType><![CDATA[text]]></MsgType>"
+        f"<Content>{_cdata(content)}</Content>"
+        "</xml>"
+    )
 
 
 def parse_xml(xml_text: str) -> dict[str, str]:
@@ -248,13 +280,13 @@ def update_subscription_user(session: Session, message: dict[str, str]) -> bool:
     return True
 
 
-def handle_message(message: dict[str, str]) -> None:
+def handle_message(message: dict[str, str]) -> str | None:
     """处理已验签的微信消息或事件。
 
     参数:
         message: 解析后的微信 XML 一级字段。
     返回:
-        无返回值；关注状态或扫码事件会在事务中新增或更新用户记录。
+        文本消息需要被动回复的文案；事件或无需回复时返回 None。
     """
     logger.info(
         "收到微信推送: msg_type=%s event=%s from_user=%s",
@@ -268,6 +300,16 @@ def handle_message(message: dict[str, str]) -> None:
     ):
         with SessionLocal.begin() as session:
             update_subscription_user(session, message)
+        return None
+
+    if message.get("MsgType", "").lower() != "text":
+        return None
+
+    openid = message.get("FromUserName", "").strip()
+    if not openid or len(openid) > MAX_OPENID_LENGTH:
+        logger.warning("文本消息缺少有效的 FromUserName")
+        return None
+    return handle_cdk_text(message.get("Content", ""), openid)
 
 
 @router.get("/wechat/callback", response_class=PlainTextResponse)
@@ -315,7 +357,7 @@ async def receive_message(
     nonce: str = Query(...),
     signature: str | None = Query(None),
     msg_signature: str | None = Query(None),
-) -> PlainTextResponse:
+) -> Response:
     """接收、验签并处理微信 XML 消息或事件推送。
 
     参数:
@@ -325,7 +367,7 @@ async def receive_message(
         signature: 明文模式签名。
         msg_signature: 兼容或安全模式消息签名。
     返回:
-        成功处理后返回微信认可的 success 文本。
+        无需回复时返回微信认可的 success 文本，否则返回文本消息的被动回复 XML。
     """
     try:
         body_text = (await read_limited_body(request)).decode("utf-8")
@@ -355,7 +397,11 @@ async def receive_message(
         message = outer_message
 
     try:
-        handle_message(message)
+        reply_text = handle_message(message)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return PlainTextResponse("success")
+    if reply_text is None:
+        return PlainTextResponse("success")
+
+    reply_xml = build_text_reply_xml(message, reply_text)
+    return Response(content=reply_xml, media_type="application/xml; charset=utf-8")

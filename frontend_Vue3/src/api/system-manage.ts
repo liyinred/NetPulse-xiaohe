@@ -67,6 +67,16 @@ export function fetchUpdateUser(userId: number, params: Api.SystemManage.UserUpd
 }
 
 /**
+ * 获取当前有效的 CDK 兑换码及剩余时间。
+ * @returns 当前 CDK、生成时间、过期时间和服务端时间。
+ */
+export function fetchGetCurrentCdk() {
+  return request.get<Api.SystemManage.CdkInfo>({
+    url: '/api/user/cdk/current'
+  })
+}
+
+/**
  * 获取 HTTP 5xx 错误日志分页列表。
  * @param params 日志排序和分页参数。
  * @returns HTTP 5xx 错误日志分页列表。
