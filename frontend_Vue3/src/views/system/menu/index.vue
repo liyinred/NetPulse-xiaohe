@@ -55,7 +55,7 @@
   import { useTableColumns } from '@/hooks/core/useTableColumns'
   import type { AppRouteRecord } from '@/types/router'
   import MenuDialog from './modules/menu-dialog.vue'
-  import { fetchGetMenuList } from '@/api/system-manage'
+  import { MenuProcessor } from '@/router/core/MenuProcessor'
   import { ElTag, ElMessageBox } from 'element-plus'
 
   defineOptions({ name: 'Menus' })
@@ -100,13 +100,14 @@
   })
 
   /**
-   * 获取菜单列表数据
+   * 按当前权限模式获取菜单列表，复用角色过滤和路径规范化逻辑。
+   * @returns 菜单列表加载完成后的 Promise。
    */
   const getMenuList = async (): Promise<void> => {
     loading.value = true
 
     try {
-      const list = await fetchGetMenuList()
+      const list = await new MenuProcessor().getMenuList()
       tableData.value = list
     } catch (error) {
       throw error instanceof Error ? error : new Error('获取菜单失败')

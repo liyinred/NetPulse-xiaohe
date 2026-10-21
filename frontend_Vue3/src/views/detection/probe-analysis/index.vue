@@ -243,6 +243,7 @@
         :height="trendChartHeight"
         :x-axis-data="xAxisData"
         :data="chartSeries"
+        :smooth="false"
         :line-width="chartTheme.thinLineWidth"
         :line-opacity="0.7"
         :loading="trendLoading"
